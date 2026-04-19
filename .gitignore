@@ -1,0 +1,25 @@
+# Entorno
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Datos locales (vector DB y knowledge base)
+data/chroma_db/
+data/knowledge_base/
+
+# IDEs
+.vscode/
+.idea/
+
+# Streamlit
+.streamlit/
+
+# Tests
+.pytest_cache/
+.coverage
+htmlcov/
