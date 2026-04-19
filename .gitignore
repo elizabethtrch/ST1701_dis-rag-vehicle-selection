@@ -12,6 +12,9 @@ build/
 data/chroma_db/
 data/knowledge_base/
 
+# Base de conocimiento generada (fuentes + estructurados + reportes)
+kb-generator/base_conocimiento/
+
 # IDEs
 .vscode/
 .idea/
