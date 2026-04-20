@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kb-generator"
+version = "0.1.0"
+description = "Pipeline de construcción y carga de base de conocimiento RAG vehículos agrícolas"
+requires-python = ">=3.11"
+dependencies = [
+    # Descargas HTTP (scripts/descargar_base_conocimiento.py,
+    # scripts/descargar_corredores_invias.py)
+    "requests>=2.31.0",
+
+    # Parser de YAML frontmatter (scripts/validar_base_conocimiento.py)
+    "PyYAML>=6.0.1",
+
+    # Lectura de Excel para documentos que no son PDF
+    # (agents/knowledge_base_agent.py -> preprocesar_xls_a_markdown)
+    # - openpyxl: formatos .xlsx
+    # - xlrd<2.0: formatos legacy .xls (versiones >=2.0 quitaron soporte)
+    "pandas>=2.0.0",
+    "openpyxl>=3.1.0",
+    "xlrd>=1.2.0,<2.0",
+    "tabulate>=0.9.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ingester*"]
+
