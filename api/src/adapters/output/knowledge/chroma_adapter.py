@@ -28,7 +28,6 @@ class ChromaAdapter(KnowledgeRepository):
         self._client = chromadb.PersistentClient(path=chroma_path)
         self._collection = self._client.get_or_create_collection(
             name=collection_name,
-            metadata={"hnsw:space": "cosine"},
         )
         self._embeddings = embedding_provider
         logger.info(

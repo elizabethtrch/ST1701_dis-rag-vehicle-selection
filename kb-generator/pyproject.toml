@@ -26,11 +26,22 @@ dependencies = [
 
     # Driver Neo4j para el ingester (init_schema + carga de grafo)
     "neo4j>=5.22.0",
+
+    # Cliente HTTP de ChromaDB (ingester: upsert de chunks semanticos)
+    "chromadb==0.5.23",
+
+    # Embeddings locales (misma familia que api/: all-MiniLM-L6-v2)
+    "sentence-transformers>=3.0.0",
+
+    # Carga opcional del .env de la raiz para obtener credenciales
+    # de los contenedores sin tener que exportarlas a mano.
+    "python-dotenv>=1.0.1",
 ]
 
 [project.scripts]
 ingester-init-schema = "ingester.init_schema:main"
 ingester-verify-schema = "ingester.verify_schema:main"
+ingester-ingest-all = "ingester.pipeline:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
