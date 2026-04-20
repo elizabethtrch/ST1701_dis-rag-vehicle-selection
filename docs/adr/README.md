@@ -26,6 +26,7 @@ nuevo que la supere y marca el anterior como `Deprecated`.
 | [0006](./0006-calculo-deterministico-costos-tiempos.md) | Cálculo determinista de costos y tiempos | Accepted |
 | [0007](./0007-categorias-unificadas-prefijo-numerico.md) | Categorías unificadas con prefijo numérico español | Accepted |
 | [0008](./0008-neo4j-community-invariantes-en-ingester.md) | Neo4j Community Edition — invariantes en el ingester | Accepted |
+| [0009](./0009-venv-compartido.md) | Entorno Python compartido en la raíz del monorepo | Accepted |
 
 ## Plantilla para un ADR nuevo
 

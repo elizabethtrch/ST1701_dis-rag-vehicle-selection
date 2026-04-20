@@ -2,13 +2,14 @@
 # Ejecuta `make help` para ver el listado de targets.
 
 .PHONY: help bootstrap up down restart logs ps health \
-        kb-install schema-init schema-verify
+        install schema-init schema-verify ingest-all
 
 COMPOSE := docker compose
-KB_PY   := kb-generator/.venv/bin/python
+VENV    := .venv
+VPY     := $(VENV)/bin/python
 
-# Binario de Python usado para crear venvs. Debe cumplir >=3.11
-# (ver pyproject.toml). Override con `make kb-install PYTHON=pythonX.Y`.
+# Binario de Python usado para crear el venv compartido. Debe cumplir
+# >=3.11 (ver pyproject.toml). Override con `make install PYTHON=pythonX.Y`.
 PYTHON  ?= python3.12
 
 help: ## muestra este listado
@@ -44,18 +45,24 @@ health: ## chequeos rápidos de acceso a Chroma + Neo4j
 		-p $${NEO4J_PASSWORD:-neo4jpass} "RETURN 1 AS ok" \
 		|| echo "  ✗ Neo4j no responde"
 
+# ── Entorno Python compartido (ADR-0009) ─────────────────────
+
+install: ## crea .venv en la raíz e instala api + kb-generator editable
+	$(PYTHON) -m venv $(VENV)
+	$(VPY) -m pip install -U pip
+	$(VPY) -m pip install -e ./kb-generator -e ./api
+
 # ── kb-generator ─────────────────────────────────────────────
 
-kb-install: ## crea venv del kb-generator e instala en modo editable
-	cd kb-generator && $(PYTHON) -m venv .venv && \
-		.venv/bin/pip install -U pip && \
-		.venv/bin/pip install -e .
-
 schema-init: ## aplica schema Neo4j (idempotente)
-	@test -x $(KB_PY) || { echo "Falta venv. Corre: make kb-install"; exit 1; }
-	cd kb-generator && .venv/bin/python -m ingester.init_schema
+	@test -x $(VPY) || { echo "Falta venv. Corre: make install"; exit 1; }
+	cd kb-generator && ../$(VPY) -m ingester.init_schema
 
 schema-verify: ## verifica que el schema Neo4j esté completo
-	@test -x $(KB_PY) || { echo "Falta venv. Corre: make kb-install"; exit 1; }
-	cd kb-generator && .venv/bin/python -m ingester.verify_schema
+	@test -x $(VPY) || { echo "Falta venv. Corre: make install"; exit 1; }
+	cd kb-generator && ../$(VPY) -m ingester.verify_schema
+
+ingest-all: ## ingesta metadata.json + INVIAS + MDs a Neo4j + Chroma
+	@test -x $(VPY) || { echo "Falta venv. Corre: make install"; exit 1; }
+	cd kb-generator && ../$(VPY) -m ingester.pipeline
 

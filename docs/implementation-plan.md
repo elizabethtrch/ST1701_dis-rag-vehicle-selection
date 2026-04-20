@@ -168,6 +168,7 @@ Ajustar:
 | [0006](./adr/0006-calculo-deterministico-costos-tiempos.md) | Costos/tiempos en código, no LLM | Fases 6, 7 |
 | [0007](./adr/0007-categorias-unificadas-prefijo-numerico.md) | Slug español sin prefijo numérico | Fases 3, 5, 6, 8 |
 | [0008](./adr/0008-neo4j-community-invariantes-en-ingester.md) | Community Edition → invariantes en Python | Fases 2, 3 |
+| [0009](./adr/0009-venv-compartido.md) | Venv compartido `.venv/` en la raíz | Todas las fases de setup |
 
 ## Notas operativas
 

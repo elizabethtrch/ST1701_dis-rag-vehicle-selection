@@ -76,27 +76,30 @@ docker compose exec neo4j cypher-shell -u neo4j -p neo4jpass \
 Desde la raíz del repo:
 
 ```bash
-make kb-install    # crea kb-generator/.venv + `pip install -e .`
+make install    # crea .venv en la raíz + pip install -e ./kb-generator -e ./api
 ```
+
+El venv es **compartido entre kb-generator y api** (ver
+[ADR-0009](../docs/adr/0009-venv-compartido.md)): una sola descarga de
+torch + transformers + chromadb para ambos componentes.
 
 El Makefile usa `python3.12` por defecto (`pyproject.toml` exige
 `>=3.11`). Si tienes otra versión compatible, sobreescríbela:
 
 ```bash
-make kb-install PYTHON=python3.11
+make install PYTHON=python3.11
 ```
 
 O manualmente:
 
 ```bash
-cd kb-generator
 python3.12 -m venv .venv && source .venv/bin/activate
-pip install -e .
+pip install -e ./kb-generator -e ./api
 ```
 
-Las dependencias y entry points están declarados en `pyproject.toml`
-(PEP 621). El install editable (`-e`) hace que los cambios al código
-fuente se reflejen inmediatamente sin re-instalar.
+Las dependencias y entry points están declarados en los `pyproject.toml`
+de cada componente (PEP 621). El install editable (`-e`) hace que los
+cambios al código fuente se reflejen inmediatamente sin re-instalar.
 
 ---
 
@@ -113,8 +116,8 @@ make schema-init      # aplica schema.cypher a Neo4j
 make schema-verify    # compara contra el set esperado y reporta faltantes
 ```
 
-Ambos targets llaman al venv de `kb-generator/`, así que primero debes
-haber corrido `make kb-install`.
+Ambos targets usan el venv compartido de la raíz, así que primero debes
+haber corrido `make install`.
 
 Salida esperada de `schema-verify`:
 
@@ -132,9 +135,9 @@ Salida esperada de `schema-verify`:
 
 > Los módulos subyacentes son `ingester.init_schema` y
 > `ingester.verify_schema`. Puedes invocarlos directo con
-> `kb-generator/.venv/bin/python -m ingester.init_schema` o, gracias a
-> los entry points de `pyproject.toml`,
-> `kb-generator/.venv/bin/ingester-init-schema` (ídem para `verify`).
+> `.venv/bin/python -m ingester.init_schema` o, gracias a los entry
+> points de `pyproject.toml`, `.venv/bin/ingester-init-schema` (ídem
+> para `verify`).
 
 ---
 
@@ -153,14 +156,18 @@ python agents/knowledge_base_agent.py --solo-estructurar
 python agents/knowledge_base_agent.py --verificar-cobertura
 ```
 
-### Ingester (por construir — Fases 3 y 4 del
-[plan de implementación](../docs/implementation-plan.md))
+### Ingester
+
+Desde la raíz del repo:
+
 ```bash
-python -m ingester.cli ingest-all              # batch completo
-python -m ingester.cli ingest-file <path>      # documento suelto
-python -m ingester.cli reindex --categoria X   # rebuild selectivo
-python -m ingester.cli stats                   # inventario indexado
+make ingest-all        # metadata.json + INVIAS + MDs → Neo4j + Chroma
 ```
+
+CLI con subcomandos (ingest-file, reindex, stats) llega en la Fase 4
+del [plan de implementación](../docs/implementation-plan.md). El
+entry point ya disponible es `ingester-ingest-all` (instalado por
+`make install`).
 
 ---
 
@@ -178,13 +185,22 @@ kb-generator/
 │   └── agente_estructuracion_documentos.md
 ├── skills/
 │   └── knowledge-base-builder/SKILL.md   # guía del estructurador
-├── ingester/                         # Chroma + Neo4j (en construcción)
+├── ingester/                         # Chroma + Neo4j (Fases 3-4)
+│   ├── config.py
+│   ├── clients/{chroma,neo4j}_client.py
+│   ├── loaders/{md,invias}_loader.py
+│   ├── mappers/{documento,corredor}.py
+│   ├── chunker.py
+│   ├── pipeline.py
+│   ├── schema.cypher
+│   ├── init_schema.py
+│   └── verify_schema.py
 ├── base_conocimiento/                # generado (en .gitignore)
 │   ├── fuentes/                      # PDFs/XLS originales
 │   ├── estructurados/                # MDs con YAML front matter + JSON
 │   ├── metadata.json
 │   └── reporte_*.{json,md}
-└── requirements.txt
+└── pyproject.toml
 ```
 
 ---

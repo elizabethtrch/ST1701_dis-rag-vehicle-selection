@@ -53,12 +53,22 @@ Pre-requisitos: contenedores de datos arriba (ver `make up` desde la
 raíz) y la base de conocimiento ingestada (ver
 [`kb-generator/README.md`](../kb-generator/README.md)).
 
+El entorno Python es **compartido** con `kb-generator/` en un solo
+`.venv` en la raíz del repo (ver
+[ADR-0009](../docs/adr/0009-venv-compartido.md)):
+
 ```bash
-cd api
-python3.12 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-cp .env.example .env       # completar con tu API key de LLM
-python main.py             # http://localhost:8000/docs
+# Desde la raíz del repo
+make install               # crea .venv + pip install -e ./kb-generator -e ./api
+cp api/.env.example api/.env  # completar con tu API key de LLM
+cd api && ../.venv/bin/python main.py   # http://localhost:8000/docs
+```
+
+O, si prefieres activar el venv:
+
+```bash
+source .venv/bin/activate
+cd api && python main.py
 ```
 
 ---
@@ -172,8 +182,9 @@ Todas las respuestas de error incluyen `trace_id` para trazabilidad.
 ## Tests
 
 ```bash
-cd api
+# Desde la raíz del repo, con el venv compartido ya instalado
 source .venv/bin/activate
+cd api
 pytest tests/unit/ -v
 ```
 

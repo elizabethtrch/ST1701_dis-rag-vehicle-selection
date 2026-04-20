@@ -31,7 +31,7 @@ ChromaDB y Neo4j se orquestan con `docker-compose.yml` desde la raíz
 | Herramienta | Versión mínima | Notas |
 |---|---|---|
 | Docker Engine | 24.x | con `docker compose` v2 |
-| Python | 3.11+ | el Makefile usa `python3.12` por defecto; override con `PYTHON=pythonX.Y` |
+| Python | 3.11+ | un solo `.venv` para todo el monorepo (ADR-0009); el Makefile usa `python3.12` por defecto, override con `PYTHON=pythonX.Y` |
 | GNU Make | 3.81+ | para los atajos de `Makefile` |
 | Bash | 4+ | usado por `scripts/bootstrap.sh` |
 | `sudo` | — | solo la primera vez si Docker creó volúmenes como root |
@@ -57,18 +57,19 @@ make up               # levanta ChromaDB + Neo4j
 make ps               # ambos servicios en estado "Up (healthy)"
 make health           # heartbeat Chroma + RETURN 1 en Neo4j
 
-# 2. kb-generator: entorno + grafo
-make kb-install       # crea kb-generator/.venv y pip install -e .
-make schema-init      # aplica constraints/indices al grafo Neo4j
+# 2. Entorno Python compartido (ADR-0009)
+make install          # crea .venv en la raíz + pip install -e ./kb-generator -e ./api
+
+# 3. Grafo de conocimiento
+make schema-init      # aplica constraints/índices al grafo Neo4j
 make schema-verify    # valida → "Schema COMPLETO"
 
-# 3. [próximo] Ingesta de base de conocimiento
-#    ver kb-generator/README.md — comandos `make ingest-all`, etc.
-#    (Fases 3-4 del plan de implementación)
+# 4. Ingesta de base de conocimiento
+make ingest-all       # metadata.json + INVIAS + MDs → Neo4j + Chroma
 
-# 4. [próximo] API local
-#    cd api && source .venv/bin/activate && python main.py
-#    (Fases 5-7)
+# 5. [próximo] API local
+#    cd api && ../.venv/bin/python main.py
+#    (Fases 5-7 del plan de implementación)
 ```
 
 Ver todos los atajos con `make help`.
@@ -76,8 +77,8 @@ Ver todos los atajos con `make help`.
 ### Si cambias de versión de Python
 
 ```bash
-rm -rf kb-generator/.venv
-make kb-install PYTHON=python3.11
+rm -rf .venv
+make install PYTHON=python3.11
 ```
 
 ---
