@@ -1,20 +1,35 @@
 """
 RecommendationService – caso de uso principal.
-Orquesta el flujo RAG completo:
-  1. Construye la consulta semántica
-  2. Recupera contexto documental (KnowledgeRepository)
-  3. Ensambla el prompt (PromptBuilder)
-  4. Invoca el LLM (LLMProvider)
-  5. Parsea la respuesta (ResponseParser)
+Orquesta el flujo RAG híbrido (Chroma + Neo4j):
+  1. Recupera contexto semántico (KnowledgeRepository / Chroma)
+  2. Recupera contexto estructurado (GraphRepository / Neo4j)  ← Fase 6
+  3. Ensambla el prompt con ambos contextos
+  4. Invoca el LLM
+  5. Parsea la respuesta
+
+Los costos y tiempos de tránsito son calculados por CostCalculator
+(Fase 7), no por el LLM (ADR-0006).
 """
 from __future__ import annotations
+
 import logging
+
 from src.core.domain.models import RecomendacionVehiculo, SolicitudRecomendacion
-from src.core.ports.interfaces import KnowledgeRepository, LLMProvider
+from src.core.ports.interfaces import GraphRepository, KnowledgeRepository, LLMProvider
 from src.core.utils.prompt_builder import PromptBuilder
 from src.core.utils.response_parser import ResponseParser
 
 logger = logging.getLogger(__name__)
+
+
+def _extraer_ciudad(direccion: str) -> str:
+    """Extrae la ciudad del último segmento de una dirección colombiana."""
+    partes = [p.strip() for p in direccion.split(",")]
+    return partes[-1] if len(partes) > 1 else ""
+
+
+def _tipos_vehiculo_de_flota(flota) -> list[str]:
+    return list({"refrigerado" if v.refrigerado else "abierto_ventilado" for v in flota})
 
 
 class RecommendationService:
@@ -23,11 +38,13 @@ class RecommendationService:
         self,
         knowledge_repo: KnowledgeRepository,
         llm_provider: LLMProvider,
+        graph_repo: GraphRepository | None = None,
         prompt_builder: PromptBuilder | None = None,
         response_parser: ResponseParser | None = None,
         top_k: int = 6,
     ) -> None:
         self._repo = knowledge_repo
+        self._graph = graph_repo
         self._llm = llm_provider
         self._prompt = prompt_builder or PromptBuilder()
         self._parser = response_parser or ResponseParser()
@@ -35,18 +52,21 @@ class RecommendationService:
 
     def recomendar(self, solicitud: SolicitudRecomendacion) -> RecomendacionVehiculo:
         logger.info(
-            "Iniciando recomendación para pedido=%s, peso=%.0f kg",
-            solicitud.pedido.identificador,
-            solicitud.peso_total_kg,
+            "Recomendación: pedido=%s peso=%.0f kg",
+            solicitud.pedido.identificador, solicitud.peso_total_kg,
         )
 
-        # ── Fase 2: recuperación de contexto ─────────────────
-        fragmentos = self._recuperar_contexto(solicitud)
-        logger.info("Fragmentos recuperados: %d", len(fragmentos))
+        # ── Fase recuperación ────────────────────────────────
+        fragmentos = self._recuperar_contexto_chroma(solicitud)
+        contexto_grafo = self._recuperar_contexto_grafo(solicitud) if self._graph else {}
+        logger.info(
+            "Fragmentos Chroma: %d | claves grafo: %s",
+            len(fragmentos), list(contexto_grafo.keys()),
+        )
 
-        # ── Fase 3: razonamiento del LLM ─────────────────────
+        # ── Fase razonamiento LLM ────────────────────────────
         system_prompt = self._prompt.build_system_prompt()
-        user_prompt = self._prompt.build_user_prompt(solicitud, fragmentos)
+        user_prompt = self._prompt.build_user_prompt(solicitud, fragmentos, contexto_grafo)
 
         llm_response = self._llm.generate(
             system_prompt=system_prompt,
@@ -54,31 +74,60 @@ class RecommendationService:
             max_tokens=1500,
         )
         logger.info(
-            "LLM respondió: %d tokens entrada, %d salida, modelo=%s",
-            llm_response.tokens_entrada,
-            llm_response.tokens_salida,
-            llm_response.modelo,
+            "LLM: %d in / %d out tokens, modelo=%s",
+            llm_response.tokens_entrada, llm_response.tokens_salida, llm_response.modelo,
         )
 
-        # ── Fase 4: parseo de respuesta ───────────────────────
-        fragmentos_ids = [f.id for f in fragmentos]
+        # ── Fase parseo ──────────────────────────────────────
         recomendacion = self._parser.parse(
             llm_text=llm_response.texto,
             solicitud=solicitud,
-            fragmentos_ids=fragmentos_ids,
+            fragmentos_ids=[f.id for f in fragmentos],
+            contexto_grafo=contexto_grafo,
         )
-
         logger.info(
-            "Recomendación generada: vehículo=%s, trace_id=%s",
-            recomendacion.vehiculo_recomendado.id,
-            recomendacion.trace_id,
+            "Recomendación: vehiculo=%s trace=%s",
+            recomendacion.vehiculo_recomendado.id, recomendacion.trace_id,
         )
         return recomendacion
 
-    # ── privados ─────────────────────────────────────────────
+    # ── Recuperación del grafo (ADR-0005) ─────────────────────
 
-    def _recuperar_contexto(self, solicitud: SolicitudRecomendacion):
-        # Construye query semántica con los datos clave del pedido
+    def _recuperar_contexto_grafo(self, solicitud: SolicitudRecomendacion) -> dict:
+        ctx: dict = {}
+        try:
+            # Q1: Requisitos de transporte de los productos
+            nombres = [p.nombre for p in solicitud.productos]
+            ctx["requisitos_productos"] = self._graph.get_requisitos_productos(nombres)
+
+            # Q2: Corredor al destino del cliente
+            # Origen desconocido en el request → "" activa búsqueda solo por destino
+            ciudad_destino = _extraer_ciudad(solicitud.cliente.direccion)
+            corredor = (
+                self._graph.get_corredor("", ciudad_destino)
+                if ciudad_destino else None
+            )
+            ctx["corredor"] = corredor
+
+            # Q3: Tarifas del corredor para las categorías de la flota
+            if corredor:
+                tipos = _tipos_vehiculo_de_flota(solicitud.flota_disponible)
+                ctx["tarifas"] = self._graph.get_tarifas_corredor(corredor["id"], tipos)
+            else:
+                ctx["tarifas"] = []
+
+            # Q4: Normativa aplicable a los tipos de vehículo disponibles
+            tipos = _tipos_vehiculo_de_flota(solicitud.flota_disponible)
+            ctx["normativa"] = self._graph.get_normativa_tipos(tipos)
+
+        except Exception as exc:
+            logger.error("Error recuperando contexto del grafo: %s", exc)
+
+        return ctx
+
+    # ── Recuperación semántica Chroma ─────────────────────────
+
+    def _recuperar_contexto_chroma(self, solicitud: SolicitudRecomendacion):
         nombres_productos = ", ".join(p.nombre for p in solicitud.productos)
         refrigeracion = "refrigerado" if solicitud.requiere_refrigeracion else "temperatura ambiente"
         query = (
@@ -86,18 +135,14 @@ class RecommendationService:
             f"{refrigeracion}, destino {solicitud.cliente.direccion}, "
             f"prioridad {solicitud.pedido.prioridad.value}"
         )
-
-        # Búsqueda semántica general
         fragmentos = self._repo.search_semantic(query, k=self._top_k)
 
-        # Búsqueda adicional específica por categoría de flota
+        # Búsqueda adicional específica por catálogo de flota
         flota_frags = self._repo.search_semantic(
             f"especificaciones vehículos {refrigeracion} capacidad {solicitud.peso_total_kg:.0f} kg",
             k=3,
-            categoria="fleet",
+            categoria="catalogo_flota_vehicular",
         )
-
-        # Fusión sin duplicados
         ids_vistos = {f.id for f in fragmentos}
         for f in flota_frags:
             if f.id not in ids_vistos:
@@ -105,3 +150,4 @@ class RecommendationService:
                 ids_vistos.add(f.id)
 
         return fragmentos
+

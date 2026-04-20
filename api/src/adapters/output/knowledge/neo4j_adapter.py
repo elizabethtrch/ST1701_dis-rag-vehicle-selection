@@ -36,17 +36,27 @@ RETURN
     tv.tipo               AS tipo_vehiculo_requerido
 """
 
-# Q2: Corredor vial entre ciudades (match pareado, bidireccional)
-# Se usa AND entre origen Y destino para no mezclar corredores distintos.
-# El soporte bidireccional (A→B o B→A) cubre el caso en que el grafo
-# almacena el corredor en sentido inverso al consultado.
+# Q2: Corredor vial entre ciudades.
+# - Si $origen = '' → busca solo por destino (cuando el origen es desconocido,
+#   ej. se extrae solo la ciudad del cliente desde su dirección).
+# - Si $origen != '' → match AND pareado + soporte bidireccional.
 _Q_CORREDOR = """
 MATCH (c:Corredor)-[:ORIGEN]->(o:Ciudad)
 MATCH (c)-[:DESTINO]->(d:Ciudad)
-WHERE (toLower(o.nombre) CONTAINS toLower($origen)
-       AND toLower(d.nombre) CONTAINS toLower($destino))
-   OR (toLower(o.nombre) CONTAINS toLower($destino)
-       AND toLower(d.nombre) CONTAINS toLower($origen))
+WHERE (
+    $origen = '' AND (
+        toLower(d.nombre) CONTAINS toLower($destino)
+        OR toLower(o.nombre) CONTAINS toLower($destino)
+    )
+) OR (
+    $origen <> '' AND (
+        (toLower(o.nombre) CONTAINS toLower($origen)
+         AND toLower(d.nombre) CONTAINS toLower($destino))
+        OR
+        (toLower(o.nombre) CONTAINS toLower($destino)
+         AND toLower(d.nombre) CONTAINS toLower($origen))
+    )
+)
 RETURN
     c.id                        AS id,
     c.nombre                    AS nombre,

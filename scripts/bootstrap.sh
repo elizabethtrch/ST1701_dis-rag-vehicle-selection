@@ -16,6 +16,7 @@ HOST_GID="$(id -g)"
 echo "→ Preparando volúmenes en ./data/ para UID=$HOST_UID GID=$HOST_GID"
 mkdir -p data/chroma
 mkdir -p data/neo4j/data data/neo4j/logs data/neo4j/import data/neo4j/plugins
+mkdir -p data/ollama
 
 # Chroma escribe su log en /chroma/chroma.log (fuera del volumen de
 # datos). Si no pre-existe como archivo, Docker lo crearía como

@@ -119,7 +119,8 @@ def build_recommendation_service(settings: Settings):
     emb = _build_embedding_provider(settings)
     repo = _build_chroma_adapter(settings, emb)
     llm = _build_llm_provider(settings)
-    return RecommendationService(knowledge_repo=repo, llm_provider=llm)
+    graph = _build_neo4j_adapter(settings)
+    return RecommendationService(knowledge_repo=repo, llm_provider=llm, graph_repo=graph)
 
 
 def build_recommendation_service_with_llm(settings: Settings, llm_provider: str):
@@ -130,7 +131,8 @@ def build_recommendation_service_with_llm(settings: Settings, llm_provider: str)
     emb = _build_embedding_provider(settings)
     repo = _build_chroma_adapter(settings, emb)
     llm = _build_llm_provider(override)
-    return RecommendationService(knowledge_repo=repo, llm_provider=llm)
+    graph = _build_neo4j_adapter(settings)
+    return RecommendationService(knowledge_repo=repo, llm_provider=llm, graph_repo=graph)
 
 
 def build_ingestion_service(settings: Settings):

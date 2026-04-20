@@ -52,4 +52,46 @@ services:
       interval: 15s
       timeout: 5s
       retries: 10
+  
+  ollama:
+    image: ollama/ollama:rocm
+    container_name: rag-ollama
+    restart: unless-stopped
+    # Mismo patrón que chromadb y neo4j: UID/GID del host para evitar
+    # que Docker cree el volumen como root. OLLAMA_MODELS apunta a una
+    # ruta fija en lugar del home (/root/.ollama) para que funcione con
+    # cualquier UID.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    deploy:
+      resources:
+        limits:
+          memory: 24G
+          cpus: '6.0'
+        reservations:
+          memory: 16G
+          cpus: '4.0'
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./data/ollama:/ollama/models
+    environment:
+      - OLLAMA_MODELS=/ollama/models
+      - OLLAMA_NUM_PARALLEL=6
+      - OMP_NUM_THREADS=6
+      - OLLAMA_NUM_THREADS=8
+      - OLLAMA_MAX_LOADED_MODELS=2
+      - OLLAMA_FLASH_ATTENTION=1
+      - OLLAMA_HOST=0.0.0.0
+      - ROCM_VISIBLE_DEVICES=all
+      - HIP_VISIBLE_DEVICES=all
+      - GOMAXPROCS=6
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
