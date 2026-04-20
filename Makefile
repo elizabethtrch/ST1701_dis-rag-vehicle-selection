@@ -5,7 +5,7 @@
         install install-kb install-api \
         schema-init schema-verify ingest-all \
         run-api \
-        build-kb build-kb-download build-kb-structure build-kb-verify
+        build-kb build-kb-download build-kb-structure build-kb-verify build-kb-corredores build-kb-curado
 
 COMPOSE := docker compose
 VENV    := .venv
@@ -96,6 +96,14 @@ build-kb-structure: ## solo estructura PDFs ya descargados → MDs en estructura
 build-kb-verify: ## solo verifica cobertura de la base de conocimiento
 	@test -x $(VPY) || { echo "Falta venv. Corre: make install"; exit 1; }
 	cd kb-generator && ../$(VPY) agents/knowledge_base_agent.py --verificar-cobertura
+
+build-kb-corredores: ## refresca snapshot de corredores viales INVIAS → estructurados/
+	@test -x $(VPY) || { echo "Falta venv. Corre: make install"; exit 1; }
+	cd kb-generator && ../$(VPY) agents/knowledge_base_agent.py --solo-corredores
+
+build-kb-curado: ## genera SICE-TAC .md + fichas curateadas (café, etc.) sin PDF fuente
+	@test -x $(VPY) || { echo "Falta venv. Corre: make install"; exit 1; }
+	cd kb-generator && ../$(VPY) agents/knowledge_base_agent.py --solo-curar
 
 schema-init: ## aplica schema Neo4j (idempotente)
 	@test -x $(VPY) || { echo "Falta venv. Corre: make install"; exit 1; }
