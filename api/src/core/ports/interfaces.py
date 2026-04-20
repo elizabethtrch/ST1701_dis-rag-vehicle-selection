@@ -26,6 +26,54 @@ class Fragmento:
 
 
 # ══════════════════════════════════════════════════════════════
+# Puerto 0 – GraphRepository  (Neo4j — Cypher parametrizado)
+# ══════════════════════════════════════════════════════════════
+
+class GraphRepository(ABC):
+    """Abstrae consultas Cypher parametrizadas al grafo de conocimiento.
+
+    Implementa las ~4 queries fijas del ADR-0005. Los métodos retornan
+    listas de dicts nativos de Python (sin ORM) para no acoplar el núcleo
+    al driver de Neo4j. Si no hay datos devuelve lista vacía.
+    """
+
+    @abstractmethod
+    def get_requisitos_productos(self, nombres: list[str]) -> list[dict]:
+        """Q1: Condiciones de transporte para los productos dados.
+
+        Retorna: nombre, temp_opt_c, humedad_pct, vida_util_dias,
+                 tipo_vehiculo_requerido.
+        """
+        ...
+
+    @abstractmethod
+    def get_corredor(self, origen: str, destino: str) -> dict | None:
+        """Q2: Corredor vial entre dos ciudades (búsqueda parcial).
+
+        Retorna el primer corredor cuyas ciudades de origen o destino
+        contengan los strings dados. None si no se encuentra ninguno.
+        """
+        ...
+
+    @abstractmethod
+    def get_tarifas_corredor(
+        self, corredor_id: str, categorias_peaje: list[str]
+    ) -> list[dict]:
+        """Q3: Tarifas y peajes del corredor para las categorías dadas."""
+        ...
+
+    @abstractmethod
+    def get_normativa_tipos(self, tipos_vehiculo: list[str]) -> list[dict]:
+        """Q4: Normativa que regula los tipos de vehículo dados."""
+        ...
+
+    @abstractmethod
+    def close(self) -> None:
+        """Cierra la conexión al driver."""
+        ...
+
+
+# ══════════════════════════════════════════════════════════════
 # Puerto 1 – KnowledgeRepository
 # ══════════════════════════════════════════════════════════════
 

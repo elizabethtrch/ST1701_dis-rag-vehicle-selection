@@ -1,13 +1,17 @@
 """
-ChromaAdapter – adaptador de salida para ChromaDB (base vectorial).
+ChromaAdapter – adaptador de salida para ChromaDB vía HTTP.
 Implementa el puerto KnowledgeRepository.
+La base es compartida con kb-generator (ADR-0002 y ADR-0003).
 """
 from __future__ import annotations
+
 import logging
-import os
 from src.core.ports.interfaces import EmbeddingProvider, Fragmento, KnowledgeRepository
 
 logger = logging.getLogger(__name__)
+
+# Clave de metadata usada por kb-generator al ingestar (ADR-0007)
+_CAT_KEY = "categoria_rag"
 
 
 class ChromaAdapter(KnowledgeRepository):
@@ -15,7 +19,8 @@ class ChromaAdapter(KnowledgeRepository):
     def __init__(
         self,
         embedding_provider: EmbeddingProvider,
-        chroma_path: str = "./data/chroma_db",
+        chroma_host: str = "localhost",
+        chroma_port: int = 8001,
         collection_name: str = "agro_transport",
     ) -> None:
         try:
@@ -24,15 +29,19 @@ class ChromaAdapter(KnowledgeRepository):
             raise ImportError("Instala chromadb: pip install chromadb") from exc
 
         import chromadb
-        os.makedirs(chroma_path, exist_ok=True)
-        self._client = chromadb.PersistentClient(path=chroma_path)
+
+        self._client = chromadb.HttpClient(
+            host=chroma_host,
+            port=chroma_port,
+            settings=chromadb.Settings(anonymized_telemetry=False),
+        )
         self._collection = self._client.get_or_create_collection(
             name=collection_name,
         )
         self._embeddings = embedding_provider
         logger.info(
-            "ChromaDB inicializado en '%s', colección '%s'. Fragmentos: %d",
-            chroma_path, collection_name, self._collection.count(),
+            "ChromaDB HTTP en '%s:%d', colección '%s'. Fragmentos: %d",
+            chroma_host, chroma_port, collection_name, self._collection.count(),
         )
 
     def search_semantic(
@@ -46,7 +55,7 @@ class ChromaAdapter(KnowledgeRepository):
             return []
 
         vector = self._embeddings.embed_text(query)
-        where = {"categoria": categoria} if categoria else None
+        where = {_CAT_KEY: categoria} if categoria else None
 
         try:
             results = self._collection.query(
@@ -60,19 +69,19 @@ class ChromaAdapter(KnowledgeRepository):
             return []
 
         fragmentos = []
-        ids = results["ids"][0]
-        docs = results["documents"][0]
-        metas = results["metadatas"][0]
-        dists = results["distances"][0]
-
-        for fid, doc, meta, dist in zip(ids, docs, metas, dists):
+        for fid, doc, meta, dist in zip(
+            results["ids"][0],
+            results["documents"][0],
+            results["metadatas"][0],
+            results["distances"][0],
+        ):
             fragmentos.append(
                 Fragmento(
                     id=fid,
                     contenido=doc,
-                    categoria=meta.get("categoria", ""),
+                    categoria=meta.get(_CAT_KEY, meta.get("categoria", "")),
                     fuente=meta.get("fuente", ""),
-                    score=1.0 - dist,   # cosine distance → similarity
+                    score=1.0 - dist,
                     metadata=meta,
                 )
             )
@@ -87,7 +96,7 @@ class ChromaAdapter(KnowledgeRepository):
         metadata: dict | None = None,
     ) -> None:
         vector = self._embeddings.embed_text(contenido)
-        meta = {"categoria": categoria, "fuente": fuente}
+        meta = {_CAT_KEY: categoria, "fuente": fuente}
         if metadata:
             meta.update(metadata)
         self._collection.upsert(
@@ -99,7 +108,7 @@ class ChromaAdapter(KnowledgeRepository):
 
     def list_by_category(self, categoria: str) -> list[Fragmento]:
         results = self._collection.get(
-            where={"categoria": categoria},
+            where={_CAT_KEY: categoria},
             include=["documents", "metadatas"],
         )
         fragmentos = []
@@ -110,7 +119,7 @@ class ChromaAdapter(KnowledgeRepository):
                 Fragmento(
                     id=fid,
                     contenido=doc,
-                    categoria=meta.get("categoria", ""),
+                    categoria=meta.get(_CAT_KEY, ""),
                     fuente=meta.get("fuente", ""),
                     metadata=meta,
                 )
@@ -119,3 +128,4 @@ class ChromaAdapter(KnowledgeRepository):
 
     def count(self) -> int:
         return self._collection.count()
+

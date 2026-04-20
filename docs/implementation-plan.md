@@ -25,7 +25,7 @@ los que entrega la fase.
 | 2 | Schema inicial Neo4j + Makefile + migración pyproject.toml | ✅ completo | `cbc6c2c`, `4b2982c` |
 | 3 | Módulo `kb-generator/ingester/` (loaders, chunker, clientes, mappers) | ⬜ pendiente | — |
 | 4 | CLI del ingester (`ingest-all`, `ingest-file`, `reindex`, `stats`) | ⬜ pendiente | — |
-| 5 | API: `ChromaAdapter` HTTP + `Neo4jAdapter` + puerto `GraphRepository` | ⬜ pendiente | — |
+| 5 | API: `ChromaAdapter` HTTP + `Neo4jAdapter` + puerto `GraphRepository` | ✅ completo | — |
 | 6 | `RecommendationService` con ~5 queries Cypher fijas + retrieval Chroma | ⬜ pendiente | — |
 | 7 | Calculador determinista de costos y tiempos (ADR-0006) | ⬜ pendiente | — |
 | 8 | Limpieza API: borrar `ingestion_service.py` y `ingest_cli.py` | ⬜ pendiente | — |
@@ -35,9 +35,22 @@ Leyenda: ✅ completo · ⏳ en progreso/validación · ⬜ pendiente · ⚠️ 
 
 ## Bloqueador actual
 
-Ninguno. Fase 2 validada (`make schema-verify` → 12/12 + 6/6).
-Siguiente: **Fase 3 — módulo `kb-generator/ingester/` (loaders,
-chunker, clientes, mappers)**.
+Ninguno. Fases 1-5 completadas. Siguiente: **Fase 6 —
+`RecommendationService` con Cypher fijo + Chroma retrieval**.
+
+### Limitación conocida — rutas no cubiertas por los 15 corredores INVIAS
+
+`Neo4jAdapter.get_corredor()` solo puede devolver rutas que existan
+como nodos `:Corredor` en el grafo. Rutas no cubiertas (p.ej.
+Buenaventura → Bogotá) retornan `None`.
+
+**Plan para Fase 6**: implementar dos niveles de recuperación:
+1. **Graph path finding**: si las ciudades de origen/destino existen en
+   el grafo como nodos `:Ciudad`, usar `shortestPath` atravesando
+   corredores intermedios (distancias y tiempos se suman por segmento).
+2. **Fallback semántico**: si path finding falla, búsqueda en Chroma
+   con la descripción de la ruta y razonamiento por el LLM con
+   fragmentos de documentos INVIAS disponibles.
 
 ### Decisiones nuevas durante Fase 2
 

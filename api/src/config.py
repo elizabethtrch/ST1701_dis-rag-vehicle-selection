@@ -30,10 +30,18 @@ class Settings(BaseSettings):
     embedding_provider: str = "sentence_transformers"
     embedding_model: str = "all-MiniLM-L6-v2"
 
-    # Knowledge
+    # Knowledge — ChromaDB HTTP (ADR-0002)
     knowledge_adapter: str = "chroma"
-    chroma_path: str = "./data/chroma_db"
+    chroma_host: str = "localhost"
+    chroma_port: int = 8001
     chroma_collection: str = "agro_transport"
+
+    # Knowledge — Neo4j Bolt (ADR-0002, ADR-0004)
+    neo4j_uri: str = "bolt://localhost:7687"
+    neo4j_user: str = "neo4j"
+    neo4j_password: str = "neo4jpass"
+
+    # Ingestión (legado — se elimina en Fase 8)
     knowledge_base_path: str = "./data/knowledge_base"
 
     # API
@@ -74,8 +82,18 @@ def _build_chroma_adapter(settings: Settings, embedding_provider):
     from src.adapters.output.knowledge.chroma_adapter import ChromaAdapter
     return ChromaAdapter(
         embedding_provider=embedding_provider,
-        chroma_path=settings.chroma_path,
+        chroma_host=settings.chroma_host,
+        chroma_port=settings.chroma_port,
         collection_name=settings.chroma_collection,
+    )
+
+
+def _build_neo4j_adapter(settings: Settings):
+    from src.adapters.output.knowledge.neo4j_adapter import Neo4jAdapter
+    return Neo4jAdapter(
+        uri=settings.neo4j_uri,
+        user=settings.neo4j_user,
+        password=settings.neo4j_password,
     )
 
 
