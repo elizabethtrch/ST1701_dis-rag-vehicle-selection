@@ -43,6 +43,13 @@ INVIAS_CORREDORES_JSON = (
 )
 VALIDADOR_SCRIPT = SCRIPTS_DIR / "validar_base_conocimiento.py"
 REPORTE_VALIDACION = BASE_CONOCIMIENTO / "reporte_validacion.json"
+SICETAC_MD_SCRIPT = SCRIPTS_DIR / "generar_sicetac_md.py"
+FICHAS_CURATEADAS_SCRIPT = SCRIPTS_DIR / "generar_fichas_curateadas.py"
+SICETAC_JSON = (
+    BASE_ESTRUCTURADOS / "03_condiciones_rutas_vias"
+    / "mintransporte_sicetac_distancias_tipo_terreno_rutas.json"
+)
+SICETAC_MD = SICETAC_JSON.with_suffix(".md")
 
 
 def ruta_salida(fuente: Path, extension: str) -> Path:
@@ -122,6 +129,10 @@ def evaluar_estado() -> dict:
         "invias_corredores_json_existe": False,
         "invias_corredores_snapshot": None,
         "invias_corredores_total": 0,
+        # Piezas generadas/derivadas (no vienen de un PDF descargado)
+        "sicetac_json_existe": False,
+        "sicetac_md_existe": False,
+        "fichas_curateadas_ok": False,
     }
 
     # Verificar carpetas
@@ -195,6 +206,29 @@ def evaluar_estado() -> dict:
             log(f"invias_corredores.json ilegible: {e}", "WARN")
     else:
         log("invias_corredores.json no existe todavía.", "WARN")
+
+    # Estado de piezas generadas/derivadas
+    estado["sicetac_json_existe"] = SICETAC_JSON.exists()
+    estado["sicetac_md_existe"] = SICETAC_MD.exists()
+    fichas_curateadas = [
+        BASE_ESTRUCTURADOS / ruta
+        for ruta in [
+            "01_fichas_tecnicas_productos/ica_fnc_ficha_tecnica_transporte_cafe_colombia.md"
+        ]
+    ]
+    estado["fichas_curateadas_ok"] = all(f.exists() for f in fichas_curateadas)
+
+    if not estado["sicetac_json_existe"]:
+        log("SICE-TAC JSON no existe. Ejecuta el pipeline completo primero.", "WARN")
+    elif not estado["sicetac_md_existe"]:
+        log("SICE-TAC .md no existe. Se generará en Fase 3B.", "WARN")
+    else:
+        log("SICE-TAC .md presente.", "OK")
+
+    if not estado["fichas_curateadas_ok"]:
+        log("Fichas curateadas incompletas. Se generarán en Fase 3C.", "WARN")
+    else:
+        log("Fichas curateadas presentes.", "OK")
 
     return estado
 
@@ -656,6 +690,74 @@ def ejecutar_estructuracion(pdfs_pendientes: list) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Fase 3B: Generar .md del dataset SICETAC distancias
+# ---------------------------------------------------------------------------
+
+
+def ejecutar_sicetac_md() -> bool:
+    """
+    Genera (o refresca) el .md de distancias SICE-TAC a partir del JSON
+    ya estructurado. Solo se ejecuta si el JSON fuente existe.
+    """
+    separador("FASE 3B — Generando .md SICE-TAC distancias")
+
+    if not SICETAC_JSON.exists():
+        log(
+            "SICE-TAC JSON no encontrado; se omite Fase 3B. "
+            "Ejecuta el pipeline completo (sin --solo-estructurar) para generarlo.",
+            "WARN",
+        )
+        return False
+
+    if not SICETAC_MD_SCRIPT.exists():
+        log(f"Script no encontrado: {SICETAC_MD_SCRIPT}", "ERROR")
+        return False
+
+    resultado = subprocess.run(
+        [sys.executable, str(SICETAC_MD_SCRIPT)],
+        cwd=str(BASE_DIR),
+    )
+
+    if resultado.returncode == 0:
+        log("SICE-TAC .md generado/actualizado.", "OK")
+        return True
+    else:
+        log("Error al generar SICE-TAC .md.", "WARN")
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Fase 3C: Generar fichas técnicas curateadas (sin PDF fuente)
+# ---------------------------------------------------------------------------
+
+
+def ejecutar_fichas_curateadas(forzar: bool = False) -> bool:
+    """
+    Escribe los .md de fichas curateadas que no tienen PDF fuente descargable
+    (ej. ficha de café). Idempotente: omite los archivos que ya existen,
+    salvo que forzar=True.
+    """
+    separador("FASE 3C — Generando fichas técnicas curateadas")
+
+    if not FICHAS_CURATEADAS_SCRIPT.exists():
+        log(f"Script no encontrado: {FICHAS_CURATEADAS_SCRIPT}", "ERROR")
+        return False
+
+    cmd = [sys.executable, str(FICHAS_CURATEADAS_SCRIPT)]
+    if forzar:
+        cmd.append("--forzar")
+
+    resultado = subprocess.run(cmd, cwd=str(BASE_DIR))
+
+    if resultado.returncode == 0:
+        log("Fichas curateadas generadas.", "OK")
+        return True
+    else:
+        log("Error al generar fichas curateadas.", "WARN")
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Fase 4: Verificar cobertura
 # ---------------------------------------------------------------------------
 
@@ -761,6 +863,12 @@ def orquestar(args):
         ejecutar_validacion_deterministica()
         return
 
+    # --- Solo generar fichas curateadas y SICE-TAC .md ---
+    if args.solo_curar:
+        ejecutar_sicetac_md()
+        ejecutar_fichas_curateadas()
+        return
+
     # --- Evaluar estado ---
     estado = evaluar_estado()
 
@@ -844,6 +952,12 @@ def orquestar(args):
                      if md.with_suffix(".pdf").exists()]
                 )
 
+        # Fase 3B: .md derivado del JSON SICE-TAC (siempre se regenera)
+        ejecutar_sicetac_md()
+
+        # Fase 3C: fichas curateadas sin PDF fuente (idempotente)
+        ejecutar_fichas_curateadas()
+
     # --- Fase 4A: Validación estructural determinística ---
     exit_code_validacion = ejecutar_validacion_deterministica()
     if exit_code_validacion == 2:
@@ -919,6 +1033,14 @@ if __name__ == "__main__":
         "--validar-semantica",
         action="store_true",
         help="Ejecutar también la validación semántica con subagente LLM.",
+    )
+    parser.add_argument(
+        "--solo-curar",
+        action="store_true",
+        help=(
+            "Solo ejecutar Fase 3B (SICE-TAC .md) y Fase 3C (fichas curateadas). "
+            "Requiere que el JSON de SICE-TAC ya exista."
+        ),
     )
     args = parser.parse_args()
     orquestar(args)

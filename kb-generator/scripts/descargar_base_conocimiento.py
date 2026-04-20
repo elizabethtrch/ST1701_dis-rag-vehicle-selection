@@ -116,19 +116,10 @@ DOCUMENTOS = [
         "tipo": "normativa",
         "anno": 2013,
     },
-    {
-        "id": "minsalud_res_2674_2013_oficial",
-        "nombre": "minsalud_resolucion_2674_2013_copia_oficial.pdf",
-        "url": "https://www.minsalud.gov.co/sites/rid/Lists/BibliotecaDigital/RIDE/DE/DIJ/resolucion-2674-de-2013.pdf",
-        "categoria": "05_normativa_transporte",
-        "fuente": "Ministerio de Salud",
-        "descripcion": (
-            "Copia oficial de la Resolución 2674 de 2013 desde el Ministerio de Salud. "
-            "Respaldo en caso de que la URL del INVIMA no esté disponible."
-        ),
-        "tipo": "normativa",
-        "anno": 2013,
-    },
+    # minsalud_res_2674_2013_oficial y fao_res_2674_copia_fao eliminados del catálogo:
+    # eran copias de la misma norma. El .md canónico es invima_resolucion_2674_2013_*.md
+    # que ya incorpora todo el contenido relevante de las tres fuentes (consolidado
+    # manualmente para evitar chunks duplicados en ChromaDB).
     {
         "id": "invima_acta_vehiculos_transportadores",
         "nombre": "invima_acta_inspeccion_vehiculos_transportadores_alimentos.xls",
@@ -148,19 +139,6 @@ DOCUMENTOS = [
             "automáticamente a Markdown antes de la estructuración."
         ),
         "tipo": "acta",
-        "anno": 2013,
-    },
-    {
-        "id": "fao_res_2674_copia_fao",
-        "nombre": "fao_resolucion_2674_2013_colombia.pdf",
-        "url": "https://faolex.fao.org/docs/pdf/col145241.pdf",
-        "categoria": "05_normativa_transporte",
-        "fuente": "FAO / FAOLEX",
-        "descripcion": (
-            "Copia de la Resolución 2674 de 2013 en el repositorio FAOLEX de la FAO. "
-            "Tercera fuente de respaldo para asegurar disponibilidad del documento."
-        ),
-        "tipo": "normativa",
         "anno": 2013,
     },
     {
