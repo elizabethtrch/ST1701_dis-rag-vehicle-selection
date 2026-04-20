@@ -22,7 +22,7 @@ los que entrega la fase.
 |---|------|--------|--------|
 | 0 | ADRs + estructura `docs/` | ✅ completo | `9e1b0ca` |
 | 1 | `docker-compose.yml` + `.gitignore` + bootstrap + README kb-generator | ✅ completo | `17550f5` |
-| 2 | Schema inicial Neo4j + Makefile + migración pyproject.toml | ✅ completo | `cbc6c2c`, (Fase 2) |
+| 2 | Schema inicial Neo4j + Makefile + migración pyproject.toml | ✅ completo | `cbc6c2c`, `4b2982c` |
 | 3 | Módulo `kb-generator/ingester/` (loaders, chunker, clientes, mappers) | ⬜ pendiente | — |
 | 4 | CLI del ingester (`ingest-all`, `ingest-file`, `reindex`, `stats`) | ⬜ pendiente | — |
 | 5 | API: `ChromaAdapter` HTTP + `Neo4jAdapter` + puerto `GraphRepository` | ⬜ pendiente | — |
