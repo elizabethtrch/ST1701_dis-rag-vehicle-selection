@@ -31,6 +31,10 @@ repositorio:
 - Volúmenes persistentes en `./data/chroma/` y `./data/neo4j/`, ignorados
   en `.gitignore`.
 - Credenciales y URLs parametrizadas vía `.env` en cada componente.
+- **Posture de seguridad**: ambos servicios corren con `user:` forzado
+  al `HOST_UID:HOST_GID` (no root). Los directorios bindeados del host
+  deben existir y pertenecer a ese mismo UID antes del primer
+  `docker compose up`.
 
 ## Consecuencias
 
