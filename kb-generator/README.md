@@ -13,6 +13,10 @@ Toda la ingesta vive aquí; la API solo consume (ver
 
 ---
 
+> **Atajos**: ejecuta `make help` desde la raíz del repo para ver los
+> targets disponibles (`bootstrap`, `up`, `down`, `health`,
+> `schema-init`, `schema-verify`, etc.).
+
 ## 1. Pre-requisitos: contenedores arriba
 
 Ambas bases se orquestan con `docker-compose.yml` de la raíz del repo
@@ -20,54 +24,47 @@ Ambas bases se orquestan con `docker-compose.yml` de la raíz del repo
 
 ```bash
 # Desde la raíz del repo, la primera vez:
-./scripts/bootstrap.sh      # crea volúmenes con tu UID + genera .env
-docker compose up -d
+make bootstrap     # crea volúmenes con tu UID + genera .env
+make up            # docker compose up -d
 ```
 
 ### Validar los accesos
 
-**Estado general**
+**Resumen rápido**
+
 ```bash
-docker compose ps
-```
-Ambos servicios deben mostrar `Up (healthy)` (~30-60 s).
-
-**ChromaDB (HTTP)**
-```bash
-curl -s http://localhost:8001/api/v1/heartbeat
-# → {"nanosecond heartbeat": <timestamp>}
-
-curl -s http://localhost:8001/api/v1/version
-# → "0.5.23"
-
-curl -s http://localhost:8001/api/v1/collections
-# → [] (vacío hasta la primera ingesta)
+make ps        # docker compose ps — ambos Up (healthy)
+make health    # heartbeat Chroma + RETURN 1 de Neo4j
 ```
 
-**Neo4j (Browser)**
+**Neo4j Browser**
+
 - URL: http://localhost:7474
 - Connect URL: `bolt://localhost:7687`
 - Credenciales: `neo4j` / `neo4jpass` (ajustables en `.env`)
 - En el primer login pedirá cambiar la contraseña.
 
-**Neo4j (CLI Cypher)**
+**Detalle adicional (opcional)**
+
 ```bash
-docker compose exec neo4j cypher-shell -u neo4j -p neo4jpass "RETURN 1 AS ok"
-docker compose exec neo4j cypher-shell -u neo4j -p neo4jpass "RETURN apoc.version() AS version"
+curl -s http://localhost:8001/api/v1/version          # → "0.5.23"
+curl -s http://localhost:8001/api/v1/collections      # → []
+
+docker compose exec neo4j cypher-shell -u neo4j -p neo4jpass \
+  "RETURN apoc.version() AS version"
 ```
 
 **Prueba de persistencia**
+
 ```bash
-# Crea un nodo, reinicia y valida que sobreviva
 docker compose exec neo4j cypher-shell -u neo4j -p neo4jpass \
   "CREATE (:Test {msg: 'hola'}) RETURN 'ok'"
 
-docker compose restart neo4j && sleep 15
+make restart && sleep 15
 
 docker compose exec neo4j cypher-shell -u neo4j -p neo4jpass \
   "MATCH (n:Test) RETURN n.msg"
 
-# Limpieza
 docker compose exec neo4j cypher-shell -u neo4j -p neo4jpass \
   "MATCH (n:Test) DELETE n"
 ```
@@ -76,16 +73,72 @@ docker compose exec neo4j cypher-shell -u neo4j -p neo4jpass \
 
 ## 2. Setup de Python
 
+Desde la raíz del repo:
+
+```bash
+make kb-install    # crea kb-generator/.venv + `pip install -e .`
+```
+
+El Makefile usa `python3.12` por defecto (`pyproject.toml` exige
+`>=3.11`). Si tienes otra versión compatible, sobreescríbela:
+
+```bash
+make kb-install PYTHON=python3.11
+```
+
+O manualmente:
+
 ```bash
 cd kb-generator
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -e .
 ```
+
+Las dependencias y entry points están declarados en `pyproject.toml`
+(PEP 621). El install editable (`-e`) hace que los cambios al código
+fuente se reflejen inmediatamente sin re-instalar.
 
 ---
 
-## 3. Uso
+## 3. Inicializar y verificar el schema de Neo4j
+
+Aplica constraints (unicidad) e índices del grafo de conocimiento
+definido en el [ADR-0004](../docs/adr/0004-modelo-de-grafo-neo4j.md).
+Idempotente: se puede correr múltiples veces.
+
+Desde la raíz del repo:
+
+```bash
+make schema-init      # aplica schema.cypher a Neo4j
+make schema-verify    # compara contra el set esperado y reporta faltantes
+```
+
+Ambos targets llaman al venv de `kb-generator/`, así que primero debes
+haber corrido `make kb-install`.
+
+Salida esperada de `schema-verify`:
+
+```
+… | INFO | Constraints: 12/12
+… | INFO | Indexes:     6/6
+… | INFO | Schema COMPLETO
+```
+
+> **Nota**: las invariantes `IS NOT NULL` (property existence
+> constraints) son una feature de Neo4j Enterprise Edition. En
+> Community Edition solo usamos `UNIQUE`. Los campos críticos
+> (`Corredor.nombre`, `Documento.categoria`) los valida el ingester
+> en Python antes de cada `MERGE`.
+
+> Los módulos subyacentes son `ingester.init_schema` y
+> `ingester.verify_schema`. Puedes invocarlos directo con
+> `kb-generator/.venv/bin/python -m ingester.init_schema` o, gracias a
+> los entry points de `pyproject.toml`,
+> `kb-generator/.venv/bin/ingester-init-schema` (ídem para `verify`).
+
+---
+
+## 4. Uso
 
 ### Flujo completo
 ```bash

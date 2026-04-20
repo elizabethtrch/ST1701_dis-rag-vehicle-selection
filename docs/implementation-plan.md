@@ -21,8 +21,8 @@ los que entrega la fase.
 | # | Fase | Estado | Commit |
 |---|------|--------|--------|
 | 0 | ADRs + estructura `docs/` | ✅ completo | `9e1b0ca` |
-| 1 | `docker-compose.yml` + `.gitignore` + bootstrap | ⏳ en validación | pendiente |
-| 2 | Schema inicial Neo4j (constraints + índices) | ⬜ pendiente | — |
+| 1 | `docker-compose.yml` + `.gitignore` + bootstrap + README kb-generator | ✅ completo | `17550f5` |
+| 2 | Schema inicial Neo4j + Makefile + migración pyproject.toml | ✅ completo | `cbc6c2c`, (Fase 2) |
 | 3 | Módulo `kb-generator/ingester/` (loaders, chunker, clientes, mappers) | ⬜ pendiente | — |
 | 4 | CLI del ingester (`ingest-all`, `ingest-file`, `reindex`, `stats`) | ⬜ pendiente | — |
 | 5 | API: `ChromaAdapter` HTTP + `Neo4jAdapter` + puerto `GraphRepository` | ⬜ pendiente | — |
@@ -35,30 +35,31 @@ Leyenda: ✅ completo · ⏳ en progreso/validación · ⬜ pendiente · ⚠️ 
 
 ## Bloqueador actual
 
-**Fase 1** — se fueron corrigiendo problemas al levantar el compose:
+Ninguno. Fase 2 validada (`make schema-verify` → 12/12 + 6/6).
+Siguiente: **Fase 3 — módulo `kb-generator/ingester/` (loaders,
+chunker, clientes, mappers)**.
 
-1. `Use of deprecated setting 'dbms.memory.heap.*'` → **corregido**
-   renombrando a `server.memory.heap.*` en `docker-compose.yml`.
+### Decisiones nuevas durante Fase 2
+
+- **Migración de `requirements.txt` a `pyproject.toml`** en
+  `kb-generator/` (commit `cbc6c2c`) — alinea el empaquetado con
+  `api/` y habilita entry points `ingester-init-schema` /
+  `ingester-verify-schema`.
+- **Neo4j Community Edition** + invariantes `IS NOT NULL` trasladadas
+  al ingester en Python — ver
+  [ADR-0008](./adr/0008-neo4j-community-invariantes-en-ingester.md).
+- **Python 3.12** como versión local (Makefile parametriza `PYTHON`).
+
+### Fixes aplicados durante Fase 1 (referencia histórica)
+
+1. `Use of deprecated setting 'dbms.memory.heap.*'` → renombrado a
+   `server.memory.heap.*` en `docker-compose.yml`.
 2. `Folder mounted to /data|/logs|/plugins is not writable` →
-   **mitigado** con `scripts/bootstrap.sh`, que crea los directorios
-   como usuario del host y arregla ownership si Docker los creó como
-   root.
-3. `PermissionError: /chroma/chroma.log` (Chroma) → **corregido**
-   bind-mounteando `./data/chroma.log` como archivo a `/chroma/chroma.log`.
-   `/chroma/` en la imagen es de root; solo podemos montar cosas
-   específicas adentro. `bootstrap.sh` pre-crea el archivo vacío.
-
-**Próximo paso**: el usuario debe ejecutar:
-
-```bash
-docker compose down -v
-sudo rm -rf data/
-./scripts/bootstrap.sh
-docker compose up -d
-docker compose logs chromadb neo4j | grep -iE 'warning|error|permission'
-```
-
-Si los logs salen limpios, committear Fase 1 y arrancar Fase 2.
+   `scripts/bootstrap.sh` crea los volúmenes con el UID del host y
+   corrige ownership si Docker los creó como root.
+3. `PermissionError: /chroma/chroma.log` → bind-mount de
+   `./data/chroma.log` como archivo a `/chroma/chroma.log`
+   (el padre `/chroma` en la imagen pertenece a root).
 
 ## Archivos por fase
 
@@ -166,6 +167,7 @@ Ajustar:
 | [0005](./adr/0005-queries-cypher-parametrizadas.md) | Cypher fijo, no text-to-cypher | Fase 6 |
 | [0006](./adr/0006-calculo-deterministico-costos-tiempos.md) | Costos/tiempos en código, no LLM | Fases 6, 7 |
 | [0007](./adr/0007-categorias-unificadas-prefijo-numerico.md) | Slug español sin prefijo numérico | Fases 3, 5, 6, 8 |
+| [0008](./adr/0008-neo4j-community-invariantes-en-ingester.md) | Community Edition → invariantes en Python | Fases 2, 3 |
 
 ## Notas operativas
 
