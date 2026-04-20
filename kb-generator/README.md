@@ -158,16 +158,21 @@ python agents/knowledge_base_agent.py --verificar-cobertura
 
 ### Ingester
 
-Desde la raíz del repo:
-
 ```bash
-make ingest-all        # metadata.json + INVIAS + MDs → Neo4j + Chroma
-```
+# Desde la raíz del repo — atajos make:
+make ingest-all                          # batch completo
 
-CLI con subcomandos (ingest-file, reindex, stats) llega en la Fase 4
-del [plan de implementación](../docs/implementation-plan.md). El
-entry point ya disponible es `ingester-ingest-all` (instalado por
-`make install`).
+# O directamente con el CLI (entry point `ingester`):
+.venv/bin/ingester ingest-all            # batch completo
+.venv/bin/ingester ingest-file <path>    # documento suelto (.md o .json INVIAS)
+.venv/bin/ingester reindex               # elimina + re-ingesta todo en Chroma
+.venv/bin/ingester reindex --categoria condiciones_rutas_vias
+.venv/bin/ingester stats                 # inventario Chroma + Neo4j
+
+# Ayuda
+.venv/bin/ingester --help
+.venv/bin/ingester stats --help
+```
 
 ---
 

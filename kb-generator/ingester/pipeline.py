@@ -107,12 +107,13 @@ def _ingest_invias(neo: Neo4jClient, stats: dict) -> None:
                 stats["errores"] += 1
 
 
-def _ingest_mds(chroma: ChromaClient, cfg: Config, stats: dict) -> None:
-    if not ESTRUCTURADOS.exists():
-        logger.warning("%s no existe; salto MDs", ESTRUCTURADOS)
+def _ingest_mds(chroma: ChromaClient, cfg: Config, stats: dict, root: Path | None = None) -> None:
+    search_root = root or ESTRUCTURADOS
+    if not search_root.exists():
+        logger.warning("%s no existe; salto MDs", search_root)
         return
 
-    mds = list(ESTRUCTURADOS.rglob("*.md"))
+    mds = list(search_root.rglob("*.md"))
     if not mds:
         logger.info("No hay MDs estructurados aún; Chroma queda sin chunks")
         return
@@ -142,6 +143,121 @@ def _ingest_mds(chroma: ChromaClient, cfg: Config, stats: dict) -> None:
         except Exception as exc:
             logger.error("MD %s: %s", md_path.name, exc)
             stats["errores"] += 1
+
+
+def ingest_single_file(path: Path, config: Config | None = None) -> dict:
+    """Ingesta un único archivo en Chroma y/o Neo4j.
+
+    - .json con 'invias' en el nombre → corredores INVIAS a Neo4j.
+    - .md → chunks a Chroma (con frontmatter como metadata).
+    """
+    cfg = config or Config.from_env()
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(path)
+
+    stats = {"documentos": 0, "corredores": 0, "chunks": 0, "errores": 0}
+    chroma = ChromaClient(
+        cfg.chroma_host, cfg.chroma_port, cfg.chroma_collection, cfg.embedding_model
+    )
+
+    suffix = path.suffix.lower()
+    with Neo4jClient(cfg.neo4j_uri, cfg.neo4j_user, cfg.neo4j_password) as neo:
+        if suffix == ".json" and "invias" in path.name.lower():
+            snap = load_invias(path)
+            with neo.session() as session:
+                for corredor in snap.corredores:
+                    try:
+                        upsert_corredor(session, corredor)
+                        stats["corredores"] += 1
+                    except Exception as exc:
+                        logger.error("Corredor %s: %s", corredor.get("id"), exc)
+                        stats["errores"] += 1
+        elif suffix == ".md":
+            try:
+                doc = load_md(path)
+                categoria = doc.frontmatter.get("categoria_rag", "")
+                fuente = doc.frontmatter.get("fuente") or path.name
+                chunks = chunk_text(doc.body, cfg.chunk_size, cfg.chunk_overlap)
+                if chunks:
+                    ids = [f"{path.stem}-{i:04d}" for i in range(len(chunks))]
+                    metas = [
+                        {
+                            "categoria_rag": categoria,
+                            "fuente": fuente,
+                            "archivo": path.name,
+                            "chunk_idx": i,
+                        }
+                        for i in range(len(chunks))
+                    ]
+                    chroma.upsert(ids=ids, contenidos=chunks, metadatas=metas)
+                    stats["chunks"] += len(chunks)
+            except Exception as exc:
+                logger.error("MD %s: %s", path.name, exc)
+                stats["errores"] += 1
+        else:
+            raise ValueError(f"Tipo no soportado: {suffix}. Se esperaba .md o .json INVIAS")
+
+    return stats
+
+
+def ingest_categoria(categoria_slug: str, config: Config | None = None) -> dict:
+    """Borra chunks Chroma de `categoria_slug` y re-ingesta sus MDs.
+
+    Los nodos Neo4j no se borran: MERGE es idempotente.
+    """
+    cfg = config or Config.from_env()
+    stats = {"documentos": 0, "corredores": 0, "chunks": 0, "errores": 0}
+
+    chroma = ChromaClient(
+        cfg.chroma_host, cfg.chroma_port, cfg.chroma_collection, cfg.embedding_model
+    )
+    deleted = chroma.delete_by_categoria(categoria_slug)
+    logger.info("Eliminados %d chunks de '%s'", deleted, categoria_slug)
+
+    cat_path = _find_categoria_path(categoria_slug)
+    if cat_path is None:
+        logger.warning("No se encontró carpeta para categoría '%s'", categoria_slug)
+        return stats
+
+    _ingest_mds(chroma, cfg, stats, root=cat_path)
+    return stats
+
+
+def get_stats(config: Config | None = None) -> dict:
+    """Retorna conteos de elementos indexados en Chroma y Neo4j."""
+    cfg = config or Config.from_env()
+
+    chroma = ChromaClient(
+        cfg.chroma_host, cfg.chroma_port, cfg.chroma_collection, cfg.embedding_model
+    )
+    chroma_total = chroma.count()
+
+    neo4j_counts: dict = {}
+    with Neo4jClient(cfg.neo4j_uri, cfg.neo4j_user, cfg.neo4j_password) as neo:
+        with neo.session() as session:
+            result = session.run(
+                "MATCH (n) RETURN labels(n)[0] AS label, count(*) AS total "
+                "ORDER BY total DESC"
+            )
+            neo4j_counts = {r["label"]: r["total"] for r in result}
+
+    return {"chroma": {"total": chroma_total}, "neo4j": neo4j_counts}
+
+
+def _find_categoria_path(slug: str) -> Path | None:
+    """Resuelve slug sin prefijo a carpeta en estructurados/."""
+    if not ESTRUCTURADOS.exists():
+        return None
+    for folder in ESTRUCTURADOS.iterdir():
+        if not folder.is_dir():
+            continue
+        # "01_fichas_tecnicas_productos" → "fichas_tecnicas_productos"
+        parts = folder.name.split("_", 1)
+        folder_slug = parts[1] if parts[0].isdigit() and len(parts) > 1 else folder.name
+        if folder_slug == slug:
+            return folder
+    return None
 
 
 def main() -> int:

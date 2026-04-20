@@ -45,11 +45,16 @@ class ChromaClient:
         )
 
     def delete_by_fuente(self, fuente: str) -> int:
-        """Borra todos los chunks cuya metadata.fuente == fuente.
-
-        Usado para reindex selectivo (Fase 4 del plan).
-        """
+        """Borra todos los chunks cuya metadata.fuente == fuente."""
         existing = self._collection.get(where={"fuente": fuente})
+        ids = existing.get("ids", [])
+        if ids:
+            self._collection.delete(ids=ids)
+        return len(ids)
+
+    def delete_by_categoria(self, categoria_slug: str) -> int:
+        """Borra todos los chunks de una categoría (reindex selectivo)."""
+        existing = self._collection.get(where={"categoria_rag": categoria_slug})
         ids = existing.get("ids", [])
         if ids:
             self._collection.delete(ids=ids)
