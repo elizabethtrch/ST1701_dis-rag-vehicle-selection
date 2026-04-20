@@ -19,7 +19,11 @@ class ChromaClient:
         embedding_model: str,
     ) -> None:
         logger.info("Conectando a Chroma en %s:%d", host, port)
-        self._client = chromadb.HttpClient(host=host, port=port)
+        self._client = chromadb.HttpClient(
+            host=host,
+            port=port,
+            settings=chromadb.Settings(anonymized_telemetry=False),
+        )
         self._collection = self._client.get_or_create_collection(
             name=collection,
         )

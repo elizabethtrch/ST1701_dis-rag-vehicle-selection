@@ -37,8 +37,8 @@ dependencies = [
     # de los contenedores sin tener que exportarlas a mano.
     "python-dotenv>=1.0.1",
 
-    # CLI con subcomandos (typer[all] incluye rich para output decorado)
-    "typer[all]>=0.12.0",
+    # CLI con subcomandos
+    "typer==0.24.1",
 ]
 
 [project.scripts]
