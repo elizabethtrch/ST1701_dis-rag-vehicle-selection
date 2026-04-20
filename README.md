@@ -59,6 +59,9 @@ make health           # heartbeat Chroma + RETURN 1 en Neo4j
 
 # 2. Entorno Python compartido (ADR-0009)
 make install          # crea .venv en la raíz + pip install -e ./kb-generator -e ./api
+# O si solo vas a trabajar en un componente:
+#   make install-kb   → solo kb-generator
+#   make install-api  → solo api
 
 # 3. Grafo de conocimiento
 make schema-init      # aplica constraints/índices al grafo Neo4j

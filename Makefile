@@ -2,7 +2,8 @@
 # Ejecuta `make help` para ver el listado de targets.
 
 .PHONY: help bootstrap up down restart logs ps health \
-        install schema-init schema-verify ingest-all
+        install install-kb install-api \
+        schema-init schema-verify ingest-all
 
 COMPOSE := docker compose
 VENV    := .venv
@@ -47,10 +48,18 @@ health: ## chequeos rápidos de acceso a Chroma + Neo4j
 
 # ── Entorno Python compartido (ADR-0009) ─────────────────────
 
-install: ## crea .venv en la raíz e instala api + kb-generator editable
+# File target: crea el venv y actualiza pip solo si aún no existe.
+$(VPY):
 	$(PYTHON) -m venv $(VENV)
 	$(VPY) -m pip install -U pip
-	$(VPY) -m pip install -e ./kb-generator -e ./api
+
+install: install-kb install-api ## instala ambos componentes en el .venv compartido
+
+install-kb: $(VPY) ## instala solo kb-generator (editable) en el .venv compartido
+	$(VPY) -m pip install -e ./kb-generator
+
+install-api: $(VPY) ## instala solo api (editable) en el .venv compartido
+	$(VPY) -m pip install -e ./api
 
 # ── kb-generator ─────────────────────────────────────────────
 
