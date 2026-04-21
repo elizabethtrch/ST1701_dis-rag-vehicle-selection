@@ -11,8 +11,14 @@ como base de grafos.
 El repositorio agrupa dos componentes independientes pero complementarios:
 
 - `api/` → servicio REST (FastAPI) que expone la recomendación RAG.
-- `kb-generator/` → pipeline que descarga, estructura y valida la base
-  de conocimiento que luego se ingesta en el RAG.
+- `kb-generator/` → pipeline que descarga, estructura **e ingesta** la
+  base de conocimiento en ChromaDB + Neo4j (ver ADR-0003).
+
+La infraestructura de datos (ChromaDB + Neo4j) se orquesta con
+`docker-compose.yml` en la raíz y es consumida por ambos componentes
+(ver ADR-0002).
+
+Las decisiones arquitectónicas están registradas en [`docs/adr/`](docs/adr/README.md).
 
 ---
 
@@ -23,7 +29,14 @@ ST1701_dis-rag-vehicle-selection/
 ├── CLAUDE.md                              ← este archivo
 ├── README.md
 ├── Dockerfile
+├── docker-compose.yml                     ← ChromaDB + Neo4j
 ├── .gitignore
+│
+├── docs/                                  ← documentación técnica
+│   ├── README.md
+│   └── adr/                               ← Architecture Decision Records
+│       ├── README.md                      ← índice de ADRs
+│       └── NNNN-titulo.md
 │
 ├── api/                                   ← servicio RAG (FastAPI, hexagonal)
 │   ├── main.py                            ← punto de entrada uvicorn
@@ -61,6 +74,8 @@ ST1701_dis-rag-vehicle-selection/
     │   ├── validar_base_conocimiento.py   ← validación estructural
     │   ├── limpiar_descargas.py           ← limpia basura/huérfanos
     │   └── agente_estructuracion_documentos.md
+    ├── ingester/                          ← ingesta a ChromaDB + Neo4j
+    │   └── cli.py                         ← ingest-all, ingest-file, reindex, stats
     ├── skills/
     │   └── knowledge-base-builder/SKILL.md
     └── base_conocimiento/                 ← generado (ignorado por git)

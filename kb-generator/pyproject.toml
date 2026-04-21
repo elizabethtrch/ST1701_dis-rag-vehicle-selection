@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kb-generator"
+version = "0.1.0"
+description = "Pipeline de construcción y carga de base de conocimiento RAG vehículos agrícolas"
+requires-python = ">=3.11"
+dependencies = [
+    # Descargas HTTP (scripts/descargar_base_conocimiento.py,
+    # scripts/descargar_corredores_invias.py)
+    "requests>=2.31.0",
+
+    # Parser de YAML frontmatter (scripts/validar_base_conocimiento.py)
+    "PyYAML>=6.0.1",
+
+    # Lectura de Excel para documentos que no son PDF
+    # (agents/knowledge_base_agent.py -> preprocesar_xls_a_markdown)
+    # - openpyxl: formatos .xlsx
+    # - xlrd>=2.0.1: formatos legacy .xls (pandas 2.x lo requiere;
+    #   xlrd 2.x quitó soporte para .xlsx pero mantiene .xls)
+    "pandas>=2.0.0",
+    "openpyxl>=3.1.0",
+    "xlrd>=2.0.1",
+    "tabulate>=0.9.0",
+
+    # Driver Neo4j para el ingester (init_schema + carga de grafo)
+    "neo4j>=5.22.0",
+
+    # Cliente HTTP de ChromaDB (ingester: upsert de chunks semanticos)
+    "chromadb==0.5.23",
+
+    # Embeddings locales (misma familia que api/: all-MiniLM-L6-v2)
+    "sentence-transformers>=3.0.0",
+
+    # Carga opcional del .env de la raiz para obtener credenciales
+    # de los contenedores sin tener que exportarlas a mano.
+    "python-dotenv>=1.0.1",
+
+    # CLI con subcomandos
+    "typer==0.24.1",
+]
+
+[project.scripts]
+ingester-init-schema = "ingester.init_schema:main"
+ingester-verify-schema = "ingester.verify_schema:main"
+ingester-ingest-all = "ingester.pipeline:main"
+ingester = "ingester.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ingester*"]
+

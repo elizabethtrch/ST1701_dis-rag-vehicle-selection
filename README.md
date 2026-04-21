@@ -1,236 +1,123 @@
 # API RAG – Selección Inteligente de Vehículo 🚛🌿
 
-**Arquitectura hexagonal en Python** para recomendar el vehículo óptimo de transporte agrícola mediante Retrieval-Augmented Generation.
+Monorepo del proyecto académico que construye una API RAG en Python
+para recomendar el vehículo óptimo de transporte agrícola colombiano
+combinando recuperación semántica (ChromaDB) y grafo de conocimiento
+(Neo4j).
 
-> Entregable académico – Arquitectura y Desarrollo para IA Generativa  
-> Autores: Elizabeth Toro · Santiago Cardona · Edward Rayo
-
----
-
-## Arquitectura
-
-```
-┌─────────────────────────────────────────────────────────┐
-│  ADAPTADORES DE ENTRADA                                  │
-│  ┌───────────────────┐   ┌─────────────────────────┐    │
-│  │  FastAPI REST API │   │  Batch CLI (ingestión)  │    │
-│  │  POST /api/v1/... │   │  python -m src...ingest │    │
-│  └────────┬──────────┘   └───────────┬─────────────┘    │
-│           │                          │                   │
-│  ┌────────▼──────────────────────────▼─────────────┐    │
-│  │  NÚCLEO HEXAGONAL                                │    │
-│  │  ┌──────────────────┐  ┌───────────────────┐    │    │
-│  │  │RecommendationSvc │  │  IngestionService │    │    │
-│  │  └──────────────────┘  └───────────────────┘    │    │
-│  │  ┌────────────────┐  ┌──────────────────────┐   │    │
-│  │  │  PromptBuilder │  │    ResponseParser    │   │    │
-│  │  └────────────────┘  └──────────────────────┘   │    │
-│  │                                                  │    │
-│  │  PUERTOS (interfaces abstractas)                 │    │
-│  │  KnowledgeRepository | LLMProvider | Embedding   │    │
-│  └───────────┬───────────────────┬──────────────────┘    │
-│              │                   │                        │
-│  ┌───────────▼──────┐  ┌─────────▼──────────────────┐   │
-│  │ CONOCIMIENTO     │  │ LLM ADAPTERS               │   │
-│  │ ChromaAdapter    │  │ AnthropicAdapter (Claude)  │   │
-│  │ (ChromaDB vec.)  │  │ OpenAIAdapter (GPT-4o)     │   │
-│  └──────────────────┘  │ GoogleAdapter (Gemini)     │   │
-│                         │ OllamaAdapter (local)      │   │
-│  ┌──────────────────┐   └────────────────────────────┘   │
-│  │ EMBEDDINGS       │                                     │
-│  │ SentenceTransf.  │                                     │
-│  │ OpenAIEmbedding  │                                     │
-│  └──────────────────┘                                     │
-└─────────────────────────────────────────────────────────┘
-```
+> Entregable académico — Arquitectura y Desarrollo para IA Generativa
+> Autores: Edward Rayo · Elizabeth Toro · Santiago Cardona
 
 ---
 
-## Instalación rápida
+## Componentes
+
+El repositorio agrupa dos componentes independientes pero
+complementarios sobre la misma infraestructura de datos:
+
+- **[`api/`](./api/README.md)** — servicio REST (FastAPI, arquitectura
+  hexagonal). Consume la base de conocimiento y recomienda vehículos.
+- **[`kb-generator/`](./kb-generator/README.md)** — pipeline que
+  descarga documentos institucionales, los estructura e ingesta en
+  ChromaDB + Neo4j.
+
+ChromaDB y Neo4j se orquestan con `docker-compose.yml` desde la raíz
+(ver [ADR-0002](./docs/adr/0002-bases-de-datos-contenerizadas.md)).
+
+---
+
+## Pre-requisitos
+
+| Herramienta | Versión mínima | Notas |
+|---|---|---|
+| Docker Engine | 24.x | con `docker compose` v2 |
+| Python | 3.11+ | un solo `.venv` para todo el monorepo (ADR-0009); el Makefile usa `python3.12` por defecto, override con `PYTHON=pythonX.Y` |
+| GNU Make | 3.81+ | para los atajos de `Makefile` |
+| Bash | 4+ | usado por `scripts/bootstrap.sh` |
+| `sudo` | — | solo la primera vez si Docker creó volúmenes como root |
+
+Verificar:
 
 ```bash
-# 1. Clonar / descomprimir el proyecto
-cd rag-vehicle-api
-
-# 2. Crear entorno virtual
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-
-# 3. Instalar dependencias
-pip install -e .
-
-# 4. Configurar variables de entorno
-cp .env.example .env
-# Editar .env con tu API key de Anthropic (u otro proveedor)
-
-# 5. Indexar la base de conocimiento
-python -m src.adapters.input.cli.ingest_cli seed
-
-# 6. Arrancar el servidor
-python main.py
-```
-
-El servidor queda disponible en `http://localhost:8000`  
-Documentación interactiva: `http://localhost:8000/docs`
-
----
-
-## Configuración de proveedores
-
-Editar `.env`:
-
-```env
-# Usar Claude (Anthropic) — por defecto
-LLM_PROVIDER=anthropic
-ANTHROPIC_API_KEY=sk-ant-...
-
-# O usar GPT-4o mini (OpenAI)
-LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-...
-
-# O Gemini Flash (Google)
-LLM_PROVIDER=google
-GOOGLE_API_KEY=AIza...
-
-# O Ollama local (sin costo)
-LLM_PROVIDER=ollama
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=llama3.1
+docker --version && docker compose version
+python3.12 --version
+make --version
 ```
 
 ---
 
-## Uso de la API
+## Quick start
 
-### Autenticación
-Todas las peticiones requieren el header:
-```
-Authorization: Bearer <API_SECRET_TOKEN>
-```
-El token por defecto en desarrollo es `dev-secret-token-change-in-prod`.
-
-### Endpoint principal
+Desde la raíz del repo:
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/vehicle-recommendation \
-  -H "Authorization: Bearer dev-secret-token-change-in-prod" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "pedido": {
-      "identificador": "PED-2025-0042",
-      "fecha_entrega": "2025-06-20",
-      "prioridad": "alta"
-    },
-    "productos": [
-      {"nombre": "Aguacate Hass", "cantidad": 1200, "unidad": "kg"},
-      {"nombre": "Plátano hartón", "cantidad": 800, "unidad": "kg"}
-    ],
-    "cliente": {
-      "nombre": "Distribuidora Andina S.A.",
-      "direccion": "Calle 80 # 45-12, Bogotá",
-      "latitud": 4.6782,
-      "longitud": -74.0584
-    },
-    "canal": "mayorista",
-    "flota_disponible": [
-      {"id": "VEH-015", "tipo": "TERRESTRE", "capacidad_kg": 3500, "refrigerado": true, "matricula": "ABC123"},
-      {"id": "VEH-022", "tipo": "TERRESTRE", "capacidad_kg": 2000, "refrigerado": false, "matricula": "XYZ789"}
-    ]
-  }'
+# 1. Infraestructura (primera vez)
+make bootstrap        # prepara ./data/ con tu UID y genera .env
+make up               # levanta ChromaDB + Neo4j
+make ps               # ambos servicios en estado "Up (healthy)"
+make health           # heartbeat Chroma + RETURN 1 en Neo4j
+
+# 2. Entorno Python compartido (ADR-0009)
+make install          # crea .venv en la raíz + pip install -e ./kb-generator -e ./api
+# O si solo vas a trabajar en un componente:
+#   make install-kb   → solo kb-generator
+#   make install-api  → solo api
+
+# 3. Grafo de conocimiento
+make schema-init      # aplica constraints/índices al grafo Neo4j
+make schema-verify    # valida → "Schema COMPLETO"
+
+# 4. Ingesta de base de conocimiento
+make ingest-all       # metadata.json + INVIAS + MDs → Neo4j + Chroma
+
+# 5. [próximo] API local
+#    cd api && ../.venv/bin/python main.py
+#    (Fases 5-7 del plan de implementación)
 ```
 
-### Respuesta esperada
-```json
-{
-  "trace_id": "7a3f2c1e-8b4d-4e5a-9f6c-2d1b8e0c3a7f",
-  "vehiculo_recomendado": {"id": "VEH-015", "tipo": "TERRESTRE", "matricula": "ABC123"},
-  "justificacion": "El VEH-015 se selecciona porque...",
-  "alternativas": [{"id": "VEH-022", "motivo": "Sin refrigeración, riesgo para aguacate..."}],
-  "alertas": [{"nivel": "media", "mensaje": "Verificar temperatura antes del cargue"}],
-  "costo_estimado_cop": 521525,
-  "desglose_costo": {
-    "combustible_cop": 280000, "peajes_cop": 75000,
-    "viaticos_cop": 90000, "seguro_cop": 8500,
-    "imprevistos_cop": 68025, "total_cop": 521525
-  },
-  "tiempo_estimado_min": 420
-}
-```
+Ver todos los atajos con `make help`.
 
----
-
-## CLI de ingestión
+### Si cambias de versión de Python
 
 ```bash
-# Indexar todos los documentos
-python -m src.adapters.input.cli.ingest_cli ingest --path ./data/knowledge_base
-
-# Ver estadísticas de la base de conocimiento
-python -m src.adapters.input.cli.ingest_cli stats
-
-# Cargar datos de ejemplo incluidos
-python -m src.adapters.input.cli.ingest_cli seed
+rm -rf .venv
+make install PYTHON=python3.11
 ```
 
 ---
 
-## Tests
+## Documentación
 
-```bash
-# Ejecutar todos los tests unitarios (sin APIs externas)
-python tests/unit/test_core.py
-
-# Con pytest
-pip install pytest
-pytest tests/unit/ -v
-```
-
----
-
-## Estructura del proyecto
-
-```
-rag-vehicle-api/
-├── main.py                        # Punto de entrada
-├── src/
-│   ├── config.py                  # Ensamblado de dependencias
-│   ├── core/
-│   │   ├── domain/models.py       # Entidades del dominio
-│   │   ├── ports/interfaces.py    # Puertos abstractos (hexagonal)
-│   │   ├── services/
-│   │   │   ├── recommendation_service.py  # Caso de uso principal (RAG)
-│   │   │   └── ingestion_service.py       # Pipeline de ingestión
-│   │   └── utils/
-│   │       ├── prompt_builder.py  # Construcción de prompts
-│   │       └── response_parser.py # Parseo de respuesta LLM
-│   └── adapters/
-│       ├── input/
-│       │   ├── api/router.py      # FastAPI REST
-│       │   └── cli/ingest_cli.py  # CLI batch
-│       └── output/
-│           ├── llm/               # Anthropic, OpenAI, Google, Ollama
-│           ├── embeddings/        # SentenceTransformers, OpenAI
-│           └── knowledge/         # ChromaDB
-├── data/knowledge_base/
-│   ├── products/                  # Fichas técnicas de productos
-│   ├── fleet/                     # Catálogo de flota
-│   ├── routes/                    # Condiciones de vías
-│   ├── costs/                     # Tarifas y costos
-│   └── regulations/               # Normativa colombiana
-├── tests/unit/test_core.py
-├── Dockerfile
-└── .env.example
-```
+- **[ADRs](./docs/adr/README.md)** — decisiones arquitectónicas
+  (monorepo, bases contenerizadas, ingesta centralizada, modelo de
+  grafo, Cypher parametrizado, cálculo determinista, categorías
+  unificadas, Community Edition).
+- **[Plan de implementación](./docs/implementation-plan.md)** —
+  documento vivo con las 9 fases del pipeline RAG, su estado actual y
+  los archivos que entrega cada una.
+- **[`api/README.md`](./api/README.md)** — uso detallado de la API
+  REST, configuración de proveedores LLM, ejemplos `curl`.
+- **[`kb-generator/README.md`](./kb-generator/README.md)** — pipeline
+  de descarga + estructuración + ingesta.
 
 ---
 
-## Códigos de error HTTP
+## Estructura del monorepo
 
-| Código | Significado                                    |
-|--------|------------------------------------------------|
-| 200    | Recomendación generada exitosamente            |
-| 401    | Token de autenticación ausente o inválido      |
-| 422    | Payload no cumple el esquema Pydantic          |
-| 500    | Error interno del servidor                     |
+```
+ST1701_dis-rag-vehicle-selection/
+├── api/                      ← servicio REST (ver api/README.md)
+├── kb-generator/             ← pipeline de base de conocimiento
+├── docs/
+│   ├── adr/                  ← Architecture Decision Records
+│   ├── implementation-plan.md
+│   └── README.md
+├── scripts/
+│   └── bootstrap.sh          ← prepara volúmenes con UID del host
+├── docker-compose.yml        ← ChromaDB + Neo4j
+├── Makefile                  ← atajos (make help)
+├── .env.example
+├── .gitignore
+└── CLAUDE.md                 ← guía de colaboración con el agente
+```
 
-Todas las respuestas de error incluyen `trace_id` para trazabilidad.

@@ -43,6 +43,13 @@ INVIAS_CORREDORES_JSON = (
 )
 VALIDADOR_SCRIPT = SCRIPTS_DIR / "validar_base_conocimiento.py"
 REPORTE_VALIDACION = BASE_CONOCIMIENTO / "reporte_validacion.json"
+SICETAC_MD_SCRIPT = SCRIPTS_DIR / "generar_sicetac_md.py"
+FICHAS_CURATEADAS_SCRIPT = SCRIPTS_DIR / "generar_fichas_curateadas.py"
+SICETAC_JSON = (
+    BASE_ESTRUCTURADOS / "03_condiciones_rutas_vias"
+    / "mintransporte_sicetac_distancias_tipo_terreno_rutas.json"
+)
+SICETAC_MD = SICETAC_JSON.with_suffix(".md")
 
 
 def ruta_salida(fuente: Path, extension: str) -> Path:
@@ -84,8 +91,19 @@ def separador(titulo: str = ""):
         print(f"\n{linea}")
 
 
-def preguntar(pregunta: str, opciones: list = None) -> str:
-    """Interrumpe al agente y pide decisión al usuario."""
+def preguntar(pregunta: str, opciones: list = None, default_no_interactivo: str = None) -> str:
+    """Interrumpe al agente y pide decisión al usuario.
+
+    Si stdin no es un TTY (ej. ejecución vía make, CI), resuelve automáticamente
+    con `default_no_interactivo` si se provee, o con la primera opción en caso contrario.
+    """
+    import sys as _sys
+
+    if not _sys.stdin.isatty():
+        default = default_no_interactivo or (opciones[0] if opciones else "")
+        log(f"Modo no-interactivo: seleccionando '{default}' automáticamente.", "INFO")
+        return default
+
     separador("DECISIÓN REQUERIDA")
     print(f"\n  {pregunta}\n")
     if opciones:
@@ -122,6 +140,10 @@ def evaluar_estado() -> dict:
         "invias_corredores_json_existe": False,
         "invias_corredores_snapshot": None,
         "invias_corredores_total": 0,
+        # Piezas generadas/derivadas (no vienen de un PDF descargado)
+        "sicetac_json_existe": False,
+        "sicetac_md_existe": False,
+        "fichas_curateadas_ok": False,
     }
 
     # Verificar carpetas
@@ -195,6 +217,29 @@ def evaluar_estado() -> dict:
             log(f"invias_corredores.json ilegible: {e}", "WARN")
     else:
         log("invias_corredores.json no existe todavía.", "WARN")
+
+    # Estado de piezas generadas/derivadas
+    estado["sicetac_json_existe"] = SICETAC_JSON.exists()
+    estado["sicetac_md_existe"] = SICETAC_MD.exists()
+    fichas_curateadas = [
+        BASE_ESTRUCTURADOS / ruta
+        for ruta in [
+            "01_fichas_tecnicas_productos/ica_fnc_ficha_tecnica_transporte_cafe_colombia.md"
+        ]
+    ]
+    estado["fichas_curateadas_ok"] = all(f.exists() for f in fichas_curateadas)
+
+    if not estado["sicetac_json_existe"]:
+        log("SICE-TAC JSON no existe. Ejecuta el pipeline completo primero.", "WARN")
+    elif not estado["sicetac_md_existe"]:
+        log("SICE-TAC .md no existe. Se generará en Fase 3B.", "WARN")
+    else:
+        log("SICE-TAC .md presente.", "OK")
+
+    if not estado["fichas_curateadas_ok"]:
+        log("Fichas curateadas incompletas. Se generarán en Fase 3C.", "WARN")
+    else:
+        log("Fichas curateadas presentes.", "OK")
 
     return estado
 
@@ -656,6 +701,74 @@ def ejecutar_estructuracion(pdfs_pendientes: list) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Fase 3B: Generar .md del dataset SICETAC distancias
+# ---------------------------------------------------------------------------
+
+
+def ejecutar_sicetac_md() -> bool:
+    """
+    Genera (o refresca) el .md de distancias SICE-TAC a partir del JSON
+    ya estructurado. Solo se ejecuta si el JSON fuente existe.
+    """
+    separador("FASE 3B — Generando .md SICE-TAC distancias")
+
+    if not SICETAC_JSON.exists():
+        log(
+            "SICE-TAC JSON no encontrado; se omite Fase 3B. "
+            "Ejecuta el pipeline completo (sin --solo-estructurar) para generarlo.",
+            "WARN",
+        )
+        return False
+
+    if not SICETAC_MD_SCRIPT.exists():
+        log(f"Script no encontrado: {SICETAC_MD_SCRIPT}", "ERROR")
+        return False
+
+    resultado = subprocess.run(
+        [sys.executable, str(SICETAC_MD_SCRIPT)],
+        cwd=str(BASE_DIR),
+    )
+
+    if resultado.returncode == 0:
+        log("SICE-TAC .md generado/actualizado.", "OK")
+        return True
+    else:
+        log("Error al generar SICE-TAC .md.", "WARN")
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Fase 3C: Generar fichas técnicas curateadas (sin PDF fuente)
+# ---------------------------------------------------------------------------
+
+
+def ejecutar_fichas_curateadas(forzar: bool = False) -> bool:
+    """
+    Escribe los .md de fichas curateadas que no tienen PDF fuente descargable
+    (ej. ficha de café). Idempotente: omite los archivos que ya existen,
+    salvo que forzar=True.
+    """
+    separador("FASE 3C — Generando fichas técnicas curateadas")
+
+    if not FICHAS_CURATEADAS_SCRIPT.exists():
+        log(f"Script no encontrado: {FICHAS_CURATEADAS_SCRIPT}", "ERROR")
+        return False
+
+    cmd = [sys.executable, str(FICHAS_CURATEADAS_SCRIPT)]
+    if forzar:
+        cmd.append("--forzar")
+
+    resultado = subprocess.run(cmd, cwd=str(BASE_DIR))
+
+    if resultado.returncode == 0:
+        log("Fichas curateadas generadas.", "OK")
+        return True
+    else:
+        log("Error al generar fichas curateadas.", "WARN")
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Fase 4: Verificar cobertura
 # ---------------------------------------------------------------------------
 
@@ -664,7 +777,11 @@ def verificar_cobertura():
     """Lanza un subagente para evaluar la cobertura de la base de conocimiento."""
     separador("FASE 4 — Verificando cobertura")
 
-    markdowns = list(BASE_CONOCIMIENTO.rglob("*.md"))
+    REPORTES_EXCLUIDOS = {"reporte_cobertura.md", "reporte_validacion_semantica.md"}
+    markdowns = [
+        m for m in BASE_CONOCIMIENTO.rglob("*.md")
+        if m.name not in REPORTES_EXCLUIDOS
+    ]
     fuentes = list(markdowns)
     if INVIAS_CORREDORES_JSON.exists():
         fuentes.append(INVIAS_CORREDORES_JSON)
@@ -761,13 +878,20 @@ def orquestar(args):
         ejecutar_validacion_deterministica()
         return
 
+    # --- Solo generar fichas curateadas y SICE-TAC .md ---
+    if args.solo_curar:
+        ejecutar_sicetac_md()
+        ejecutar_fichas_curateadas()
+        return
+
     # --- Evaluar estado ---
     estado = evaluar_estado()
 
     # --- Decidir si descargar ---
     if not args.solo_estructurar:
-        if not estado["metadata_existe"] or not estado["pdfs_descargados"]:
-            log("No hay documentos descargados. Iniciando descarga...", "AGENTE")
+        if args.solo_descargar or not estado["metadata_existe"] or not estado["pdfs_descargados"]:
+            razon = "solicitado por --solo-descargar" if args.solo_descargar else "no hay documentos previos"
+            log(f"Iniciando descarga ({razon})...", "AGENTE")
             ejecutar_descarga()
             estado = evaluar_estado()
 
@@ -785,6 +909,7 @@ def orquestar(args):
                     "Continuar con los que ya están descargados",
                     "Ver la lista de fallidos y decidir después",
                 ],
+                default_no_interactivo="Continuar con los que ya están descargados",
             )
             if "Reintentar" in opcion:
                 ejecutar_descarga()
@@ -819,6 +944,7 @@ def orquestar(args):
                         "Continuar de todas formas",
                         "Detener aquí",
                     ],
+                    default_no_interactivo="Continuar de todas formas",
                 )
                 if "Reintentar" in opcion:
                     ejecutar_estructuracion(resultado_estructuracion["fallidos"])
@@ -837,6 +963,7 @@ def orquestar(args):
                 "¿Quieres completar los Markdowns que les falta la sección "
                 "'Fragmentos clave para el RAG'?",
                 opciones=["Sí, completarlos ahora", "No, dejarlos así"],
+                default_no_interactivo="No, dejarlos así",
             )
             if "Sí" in opcion:
                 ejecutar_estructuracion(
@@ -844,34 +971,44 @@ def orquestar(args):
                      if md.with_suffix(".pdf").exists()]
                 )
 
+        # Fase 3B: .md derivado del JSON SICE-TAC (siempre se regenera)
+        ejecutar_sicetac_md()
+
+        # Fase 3C: fichas curateadas sin PDF fuente (idempotente)
+        ejecutar_fichas_curateadas()
+
     # --- Fase 4A: Validación estructural determinística ---
-    exit_code_validacion = ejecutar_validacion_deterministica()
-    if exit_code_validacion == 2:
-        opcion = preguntar(
-            "La validación encontró errores que bloquearían la ingestión. "
-            "¿Qué deseas hacer?",
-            opciones=[
-                "Detener y revisar el reporte",
-                "Continuar de todas formas (no recomendado)",
-            ],
-        )
-        if "Detener" in opcion:
-            log(f"Revisa el reporte en: {REPORTE_VALIDACION}", "WARN")
-            return
+    if not args.solo_descargar:
+        exit_code_validacion = ejecutar_validacion_deterministica()
+        if exit_code_validacion == 2:
+            opcion = preguntar(
+                "La validación encontró errores que bloquearían la ingestión. "
+                "¿Qué deseas hacer?",
+                opciones=[
+                    "Detener y revisar el reporte",
+                    "Continuar de todas formas (no recomendado)",
+                ],
+                default_no_interactivo="Continuar de todas formas (no recomendado)",
+            )
+            if "Detener" in opcion:
+                log(f"Revisa el reporte en: {REPORTE_VALIDACION}", "WARN")
+                return
 
     # --- Fase 4B: Validación semántica (opcional) ---
     if args.validar_semantica:
         validar_semantica()
 
-    # --- Verificación de cobertura automática al final ---
-    separador("FASE FINAL — Verificación de cobertura")
-    opcion = preguntar(
-        "¿Deseas ejecutar la verificación de cobertura para saber "
-        "si la base está lista para ingestión?",
-        opciones=["Sí, verificar ahora", "No, terminar aquí"],
-    )
-    if "Sí" in opcion:
-        verificar_cobertura()
+    # --- Verificación de cobertura automática al final (solo en modo completo) ---
+    if not args.solo_descargar:
+        separador("FASE FINAL — Verificación de cobertura")
+        opcion = preguntar(
+            "¿Deseas ejecutar la verificación de cobertura para saber "
+            "si la base está lista para ingestión?",
+            opciones=["Sí, verificar ahora", "No, terminar aquí"],
+            default_no_interactivo="No, terminar aquí",
+        )
+        if "Sí" in opcion:
+            verificar_cobertura()
 
     separador("COMPLETADO")
     log("El agente terminó su ejecución.", "OK")
@@ -919,6 +1056,14 @@ if __name__ == "__main__":
         "--validar-semantica",
         action="store_true",
         help="Ejecutar también la validación semántica con subagente LLM.",
+    )
+    parser.add_argument(
+        "--solo-curar",
+        action="store_true",
+        help=(
+            "Solo ejecutar Fase 3B (SICE-TAC .md) y Fase 3C (fichas curateadas). "
+            "Requiere que el JSON de SICE-TAC ya exista."
+        ),
     )
     args = parser.parse_args()
     orquestar(args)

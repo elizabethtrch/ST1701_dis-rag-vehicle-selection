@@ -1,0 +1,97 @@
+services:
+  chromadb:
+    image: chromadb/chroma:0.5.23
+    container_name: rag-chromadb
+    restart: unless-stopped
+    # Corre con el UID/GID del host — evita permisos de root en el
+    # volumen bindeado ./data/chroma.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    ports:
+      - "${CHROMA_PORT:-8001}:8000"
+    volumes:
+      - ./data/chroma:/chroma/chroma
+      # /chroma/chroma.log está fuera del volumen de datos y su
+      # directorio padre (/chroma) pertenece a root dentro de la
+      # imagen. Bind-mount del archivo para que uvicorn pueda abrirlo
+      # sin root. Pre-creado por scripts/bootstrap.sh.
+      - ./data/chroma.log:/chroma/chroma.log
+    environment:
+      IS_PERSISTENT: "TRUE"
+      PERSIST_DIRECTORY: /chroma/chroma
+      ANONYMIZED_TELEMETRY: "FALSE"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  neo4j:
+    image: neo4j:5.22-community
+    container_name: rag-neo4j
+    restart: unless-stopped
+    # Ídem: sin permisos de root sobre los volúmenes del host.
+    # Requiere que los directorios ./data/neo4j/{data,logs,import,plugins}
+    # existan y sean propiedad del mismo UID antes de `docker compose up`.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    ports:
+      - "${NEO4J_HTTP_PORT:-7474}:7474"
+      - "${NEO4J_BOLT_PORT:-7687}:7687"
+    volumes:
+      - ./data/neo4j/data:/data
+      - ./data/neo4j/logs:/logs
+      - ./data/neo4j/import:/var/lib/neo4j/import
+      - ./data/neo4j/plugins:/plugins
+    environment:
+      NEO4J_AUTH: "${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-neo4jpass}"
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: "apoc.*"
+      NEO4J_server_memory_heap_initial__size: "512m"
+      NEO4J_server_memory_heap_max__size: "1g"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+  
+  ollama:
+    image: ollama/ollama:rocm
+    container_name: rag-ollama
+    restart: unless-stopped
+    # Mismo patrón que chromadb y neo4j: UID/GID del host para evitar
+    # que Docker cree el volumen como root. OLLAMA_MODELS apunta a una
+    # ruta fija en lugar del home (/root/.ollama) para que funcione con
+    # cualquier UID.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    deploy:
+      resources:
+        limits:
+          memory: 24G
+          cpus: '6.0'
+        reservations:
+          memory: 16G
+          cpus: '4.0'
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./data/ollama:/ollama/models
+    environment:
+      - OLLAMA_MODELS=/ollama/models
+      - OLLAMA_NUM_PARALLEL=6
+      - OMP_NUM_THREADS=6
+      - OLLAMA_NUM_THREADS=8
+      - OLLAMA_MAX_LOADED_MODELS=2
+      - OLLAMA_FLASH_ATTENTION=1
+      - OLLAMA_HOST=0.0.0.0
+      - ROCM_VISIBLE_DEVICES=all
+      - HIP_VISIBLE_DEVICES=all
+      - GOMAXPROCS=6
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+

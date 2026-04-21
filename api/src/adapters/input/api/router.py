@@ -16,8 +16,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 import uuid
 
 from src.core.domain.models import (
-    Canal, Cliente, Pedido, Prioridad, Producto,
-    SolicitudRecomendacion, TipoVehiculo, VehiculoDisponible,
+    Canal, Pedido, Prioridad, Producto,
+    SolicitudRecomendacion, TipoVehiculo, Ubicacion, VehiculoDisponible,
 )
 from src.core.services.recommendation_service import RecommendationService
 from src.config import get_settings, build_recommendation_service, build_recommendation_service_with_llm
@@ -38,11 +38,20 @@ class ProductoSchema(BaseModel):
     unidad: str = Field(..., pattern="^(kg|ton|unidades)$")
 
 
-class ClienteSchema(BaseModel):
-    nombre: str = Field(..., min_length=1)
-    direccion: str = Field(..., min_length=5)
-    latitud: float = Field(..., ge=-4.5, le=13.0)   # rango Colombia
-    longitud: float = Field(..., ge=-81.0, le=-66.0)
+class UbicacionSchema(BaseModel):
+    ciudad: str = Field(
+        ...,
+        min_length=2,
+        description="Nombre de la ciudad tal como aparece en el grafo de corredores (ej: 'Bogotá', 'Medellín', 'Cali').",
+    )
+    departamento: Optional[str] = Field(
+        None,
+        description="Departamento de Colombia. Opcional; se usa como contexto en el prompt.",
+    )
+    direccion: Optional[str] = Field(
+        None,
+        description="Dirección física. Requerida para entregas intra-urbanas (origen == destino) donde no existe corredor en el grafo.",
+    )
 
 
 class VehiculoSchema(BaseModel):
@@ -56,7 +65,8 @@ class VehiculoSchema(BaseModel):
 class RecomendacionRequest(BaseModel):
     pedido: PedidoSchema
     productos: list[ProductoSchema] = Field(..., min_length=1)
-    cliente: ClienteSchema
+    origen: UbicacionSchema
+    destino: UbicacionSchema
     canal: Canal
     flota_disponible: list[VehiculoSchema] = Field(..., min_length=1)
     llm_provider: Optional[str] = Field(
@@ -194,11 +204,15 @@ def create_app() -> FastAPI:
             Producto(nombre=p.nombre, cantidad=p.cantidad, unidad=p.unidad)
             for p in request.productos
         ]
-        cliente = Cliente(
-            nombre=request.cliente.nombre,
-            direccion=request.cliente.direccion,
-            latitud=request.cliente.latitud,
-            longitud=request.cliente.longitud,
+        origen = Ubicacion(
+            ciudad=request.origen.ciudad,
+            departamento=request.origen.departamento,
+            direccion=request.origen.direccion,
+        )
+        destino = Ubicacion(
+            ciudad=request.destino.ciudad,
+            departamento=request.destino.departamento,
+            direccion=request.destino.direccion,
         )
         flota = [
             VehiculoDisponible(
@@ -211,8 +225,8 @@ def create_app() -> FastAPI:
         ]
         solicitud = SolicitudRecomendacion(
             pedido=pedido, productos=productos,
-            cliente=cliente, canal=request.canal,
-            flota_disponible=flota,
+            origen=origen, destino=destino,
+            canal=request.canal, flota_disponible=flota,
         )
 
         recomendacion = service.recomendar(solicitud)
