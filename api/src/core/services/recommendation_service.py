@@ -59,8 +59,9 @@ class RecommendationService:
         )
 
         # ── Fase razonamiento LLM ────────────────────────────
-        system_prompt = self._prompt.build_system_prompt()
-        user_prompt = self._prompt.build_user_prompt(solicitud, fragmentos, contexto_grafo)
+        strict = self._llm.strict_output
+        system_prompt = self._prompt.build_system_prompt(strict_mode=strict)
+        user_prompt = self._prompt.build_user_prompt(solicitud, fragmentos, contexto_grafo, strict_mode=strict)
 
         llm_response = self._llm.generate(
             system_prompt=system_prompt,

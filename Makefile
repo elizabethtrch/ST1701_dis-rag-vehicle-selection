@@ -4,7 +4,7 @@
 .PHONY: help bootstrap up down restart logs ps health ollama-pull \
         install install-kb install-api \
         schema-init schema-verify ingest-all \
-        run-api \
+        run-api api-test \
         build-kb build-kb-download build-kb-structure build-kb-verify build-kb-corredores build-kb-curado build-kb-update-ideam
 
 COMPOSE := docker compose
@@ -73,6 +73,10 @@ install-api: $(VPY) ## instala solo api (editable) en el .venv compartido
 	$(VPY) -m pip install -e ./api
 
 # ── API ──────────────────────────────────────────────────────
+
+api-test: ## ejecuta tests unitarios de la API
+	@test -x $(VPY) || { echo "Falta venv. Corre: make install"; exit 1; }
+	cd api && ../$(VPY) tests/unit/test_core.py
 
 run-api: ## levanta la API FastAPI en http://localhost:8000
 	@test -x $(VPY) || { echo "Falta venv. Corre: make install"; exit 1; }

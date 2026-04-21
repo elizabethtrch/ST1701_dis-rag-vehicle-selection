@@ -153,6 +153,11 @@ class LLMProvider(ABC):
         """Identificador del modelo activo."""
         ...
 
+    @property
+    def strict_output(self) -> bool:
+        """True para SLMs que requieren instrucciones de formato más explícitas."""
+        return False
+
 
 # ══════════════════════════════════════════════════════════════
 # Puerto 3 – EmbeddingProvider

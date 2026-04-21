@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     google_model: str = "gemini-2.0-flash-lite"
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1"
+    ollama_temperature: float = 0.2
+    ollama_top_p: float = 0.9
+    ollama_top_k: int = 40
+    ollama_repeat_penalty: float = 1.1
     huggingface_api_key: str = ""
     huggingface_model: str = "mistralai/Mistral-7B-Instruct-v0.2"
 
@@ -106,11 +110,18 @@ def _build_llm_provider(settings: Settings):
         from src.adapters.output.llm.openai_adapter import OpenAIAdapter
         return OpenAIAdapter(settings.openai_api_key, settings.openai_model)
     if provider == "google":
-        from src.adapters.output.llm.other_adapters import GoogleAdapter
+        from src.adapters.output.llm.google_adapter import GoogleAdapter
         return GoogleAdapter(settings.google_api_key, settings.google_model)
     if provider == "ollama":
-        from src.adapters.output.llm.other_adapters import OllamaAdapter
-        return OllamaAdapter(settings.ollama_base_url, settings.ollama_model)
+        from src.adapters.output.llm.ollama_adapter import OllamaAdapter
+        return OllamaAdapter(
+            base_url=settings.ollama_base_url,
+            model=settings.ollama_model,
+            temperature=settings.ollama_temperature,
+            top_p=settings.ollama_top_p,
+            top_k=settings.ollama_top_k,
+            repeat_penalty=settings.ollama_repeat_penalty,
+        )
     raise ValueError(f"LLM provider desconocido: {provider}")
 
 

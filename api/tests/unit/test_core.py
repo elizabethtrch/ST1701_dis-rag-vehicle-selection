@@ -53,12 +53,17 @@ class FakeKnowledgeRepo(KnowledgeRepository):
 
 
 class FakeLLMProvider(LLMProvider):
-    def __init__(self, respuesta_json: dict):
+    def __init__(self, respuesta_json: dict, strict: bool = False):
         self._respuesta = respuesta_json
+        self._strict = strict
 
     @property
     def nombre_modelo(self):
         return "fake-model-v1"
+
+    @property
+    def strict_output(self):
+        return self._strict
 
     def generate(self, system_prompt, user_prompt, max_tokens=1500):
         return LLMResponse(
@@ -198,6 +203,27 @@ class TestRecommendationService:
         expected = d.combustible_cop + d.peajes_cop + d.viaticos_cop + d.seguro_cop + d.imprevistos_cop
         assert abs(result.costo_estimado_cop - expected) < 1
 
+    def test_strict_output_false_por_defecto(self):
+        llm = FakeLLMProvider(_respuesta_llm_valida())
+        assert llm.strict_output is False
+
+    def test_strict_output_activa_prompt_extendido(self):
+        captured = {}
+
+        class CapturingPromptBuilder(PromptBuilder):
+            def build_system_prompt(self, strict_mode=False):
+                captured["strict_mode"] = strict_mode
+                return super().build_system_prompt(strict_mode=strict_mode)
+
+        llm = FakeLLMProvider(_respuesta_llm_valida(), strict=True)
+        service = RecommendationService(
+            knowledge_repo=FakeKnowledgeRepo(),
+            llm_provider=llm,
+            prompt_builder=CapturingPromptBuilder(),
+        )
+        service.recomendar(_solicitud_base())
+        assert captured["strict_mode"] is True
+
 
 # ══════════════════════════════════════════════════════════════
 # Tests de ResponseParser
@@ -240,6 +266,102 @@ class TestResponseParser:
         result = parser.parse(json.dumps(_respuesta_llm_valida()), _solicitud_base(), ids)
         assert result.fragmentos_consultados == ids
 
+    def test_parse_schema_alternativo_selected_vehicle(self):
+        parser = self._parser()
+        texto = json.dumps({
+            "selected_vehicle": {
+                "vehicle_id": "VEH-015",
+                "capacity_kg": 3500.0,
+                "refrigerated": True,
+                "justification": {
+                    "reason": "Cumple refrigeración y capacidad.",
+                    "reliability": "Mantiene cadena de frío en los 414 km.",
+                },
+                "alternative_vehicles": [{"vehicle_id": "VEH-022", "capacity_kg": 2000}],
+            },
+            "refrigeration_needed": True,
+        })
+        result = parser.parse(texto, _solicitud_base(), [])
+        assert result.vehiculo_recomendado.id == "VEH-015"
+        assert "Cumple refrigeración" in result.justificacion
+        assert result.justificacion != "Sin justificación disponible."
+
+    def test_parse_schema_con_reasoning_lista(self):
+        parser = self._parser()
+        texto = json.dumps({
+            "selected_vehicle": {
+                "vehicle_id": "VEH-015",
+                "reasoning": [
+                    {"factor": "Capacity", "value": "Capacidad suficiente para 2000 kg."},
+                    {"factor": "Refrigeration", "value": "Cumple cadena de frío."},
+                ],
+            }
+        })
+        result = parser.parse(texto, _solicitud_base(), [])
+        assert result.vehiculo_recomendado.id == "VEH-015"
+        assert "Capacidad suficiente" in result.justificacion
+
+    def test_parse_alternativas_agnostico_a_nombre_de_campo(self):
+        parser = self._parser()
+        for campo_motivo in ("motivo", "justificacion", "explicacion", "reason_for_exclusion", "descripcion"):
+            texto = json.dumps({
+                "vehiculo_id": "VEH-015",
+                "justificacion": "Cumple requisitos.",
+                "alternativas": [{"vehiculo_id": "VEH-022", campo_motivo: "Sin refrigeración."}],
+                "alertas": [],
+            })
+            result = parser.parse(texto, _solicitud_base(), [])
+            assert result.alternativas[0].id == "VEH-022", f"falló con campo '{campo_motivo}'"
+            assert result.alternativas[0].motivo != "", f"motivo vacío con campo '{campo_motivo}'"
+
+    def test_parse_alternativas_con_campos_alternativos(self):
+        parser = self._parser()
+        texto = json.dumps({
+            "selected_vehicle": {"id": "VEH-015"},
+            "justificacion": "Cumple refrigeración.",
+            "alternatives": [
+                {
+                    "vehicle_id": "VEH-022",
+                    "reason_for_exclusion": "No tiene refrigeración para productos perecederos.",
+                }
+            ],
+        })
+        result = parser.parse(texto, _solicitud_base(), [])
+        assert len(result.alternativas) == 1
+        assert result.alternativas[0].id == "VEH-022"
+        assert "refrigeración" in result.alternativas[0].motivo
+
+    def test_parse_schema_justification_como_lista(self):
+        parser = self._parser()
+        texto = json.dumps({
+            "selected_vehicle": {
+                "id": "VEH-015",
+                "capacity": 3500.0,
+                "refrigerated": True,
+            },
+            "justification": [
+                "El vehículo VEH-015 cumple con refrigeración.",
+                "La carga de 1200 kg se ajusta a la capacidad.",
+            ],
+        })
+        result = parser.parse(texto, _solicitud_base(), [])
+        assert result.vehiculo_recomendado.id == "VEH-015"
+        assert "refrigeración" in result.justificacion
+        assert result.justificacion != "Sin justificación disponible."
+
+    def test_parse_json_con_comentarios_js(self):
+        parser = self._parser()
+        texto = (
+            '{\n'
+            '  "vehiculo_id": "VEH-015", // vehículo seleccionado\n'
+            '  "justificacion": "Cumple requisitos.",\n'
+            '  "alternativas": [],\n'
+            '  "alertas": [] /* sin alertas */\n'
+            '}'
+        )
+        result = parser.parse(texto, _solicitud_base(), [])
+        assert result.vehiculo_recomendado.id == "VEH-015"
+
 
 # ══════════════════════════════════════════════════════════════
 # Tests de PromptBuilder
@@ -268,6 +390,58 @@ class TestPromptBuilder:
         pb = PromptBuilder()
         prompt = pb.build_user_prompt(_solicitud_base(), [])
         assert "SÍ" in prompt  # requiere_refrigeracion = True para aguacate
+
+    def test_user_prompt_menciona_vehiculos_alternativos(self):
+        pb = PromptBuilder()
+        prompt = pb.build_user_prompt(_solicitud_base(), [])
+        assert "alternativas" in prompt
+        assert "VEH-022" in prompt  # único vehículo no primero en la flota base
+
+    def test_user_prompt_strict_usa_xml(self):
+        pb = PromptBuilder()
+        prompt = pb.build_user_prompt(_solicitud_base(), [], strict_mode=True)
+        assert "<input_data>" in prompt
+        assert "<transport_request" in prompt
+        assert "<available_fleet>" in prompt
+        assert "<instruction_trigger>" in prompt
+
+    def test_user_prompt_strict_contiene_datos_pedido(self):
+        pb = PromptBuilder()
+        fragmentos = [Fragmento("f1", "Contenido de prueba", "products", "test.md", 0.9)]
+        prompt = pb.build_user_prompt(_solicitud_base(), fragmentos, strict_mode=True)
+        assert "PED-TEST-001" in prompt
+        assert "Aguacate Hass" in prompt
+        assert "VEH-015" in prompt
+        assert "VEH-022" in prompt
+        assert "Medellín" in prompt
+        assert "Bogotá" in prompt
+
+    def test_user_prompt_normal_no_usa_xml(self):
+        pb = PromptBuilder()
+        prompt = pb.build_user_prompt(_solicitud_base(), [], strict_mode=False)
+        assert "<input_data>" not in prompt
+        assert "<available_fleet>" not in prompt
+
+    def test_system_prompt_normal_sin_restricciones_absolutas(self):
+        pb = PromptBuilder()
+        prompt = pb.build_system_prompt(strict_mode=False)
+        assert "<constraints>" not in prompt
+        assert "<example>" not in prompt
+
+    def test_system_prompt_strict_tiene_ejemplo_y_restricciones(self):
+        pb = PromptBuilder()
+        prompt = pb.build_system_prompt(strict_mode=True)
+        assert "<example>" in prompt
+        assert "<constraints>" in prompt
+        assert "vehiculo_id" in prompt
+
+    def test_strict_mode_no_altera_campos_del_schema(self):
+        pb = PromptBuilder()
+        normal = pb.build_system_prompt(strict_mode=False)
+        strict = pb.build_system_prompt(strict_mode=True)
+        for campo in ("vehiculo_id", "justificacion", "alternativas", "alertas"):
+            assert campo in normal
+            assert campo in strict
 
 
 # ── Runner manual ─────────────────────────────────────────────
