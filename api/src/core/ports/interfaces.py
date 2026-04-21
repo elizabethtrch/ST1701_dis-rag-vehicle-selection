@@ -15,7 +15,9 @@ from typing import Any
 class Fragmento:
     id: str
     contenido: str
-    categoria: str          # products | fleet | routes | costs | regulations
+    categoria: str          # fichas_tecnicas_productos | catalogo_flota_vehicular |
+                            # condiciones_rutas_vias | tarifas_costos_transporte |
+                            # normativa_transporte  (ADR-0007)
     fuente: str
     score: float = 0.0
     metadata: dict = None

@@ -135,13 +135,3 @@ def build_recommendation_service_with_llm(settings: Settings, llm_provider: str)
     return RecommendationService(knowledge_repo=repo, llm_provider=llm, graph_repo=graph)
 
 
-def build_ingestion_service(settings: Settings):
-    from src.core.services.ingestion_service import IngestionService
-    emb = _build_embedding_provider(settings)
-    repo = _build_chroma_adapter(settings, emb)
-    return IngestionService(
-        knowledge_repo=repo,
-        embedding_provider=emb,
-        chunk_size=settings.chunk_size,
-        chunk_overlap=settings.chunk_overlap,
-    )
