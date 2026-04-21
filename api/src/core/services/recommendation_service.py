@@ -22,12 +22,6 @@ from src.core.utils.response_parser import ResponseParser
 logger = logging.getLogger(__name__)
 
 
-def _extraer_ciudad(direccion: str) -> str:
-    """Extrae la ciudad del último segmento de una dirección colombiana."""
-    partes = [p.strip() for p in direccion.split(",")]
-    return partes[-1] if len(partes) > 1 else ""
-
-
 def _tipos_vehiculo_de_flota(flota) -> list[str]:
     return list({"refrigerado" if v.refrigerado else "abierto_ventilado" for v in flota})
 
@@ -77,6 +71,7 @@ class RecommendationService:
             "LLM: %d in / %d out tokens, modelo=%s",
             llm_response.tokens_entrada, llm_response.tokens_salida, llm_response.modelo,
         )
+        logger.debug("LLM respuesta completa:\n%s", llm_response.texto)
 
         # ── Fase parseo ──────────────────────────────────────
         recomendacion = self._parser.parse(
@@ -100,12 +95,10 @@ class RecommendationService:
             nombres = [p.nombre for p in solicitud.productos]
             ctx["requisitos_productos"] = self._graph.get_requisitos_productos(nombres)
 
-            # Q2: Corredor al destino del cliente
-            # Origen desconocido en el request → "" activa búsqueda solo por destino
-            ciudad_destino = _extraer_ciudad(solicitud.cliente.direccion)
-            corredor = (
-                self._graph.get_corredor("", ciudad_destino)
-                if ciudad_destino else None
+            # Q2: Corredor entre origen y destino explícitos
+            corredor = self._graph.get_corredor(
+                solicitud.origen.ciudad,
+                solicitud.destino.ciudad,
             )
             ctx["corredor"] = corredor
 
@@ -132,7 +125,8 @@ class RecommendationService:
         refrigeracion = "refrigerado" if solicitud.requiere_refrigeracion else "temperatura ambiente"
         query = (
             f"Transporte de {nombres_productos}, {solicitud.peso_total_kg:.0f} kg, "
-            f"{refrigeracion}, destino {solicitud.cliente.direccion}, "
+            f"{refrigeracion}, "
+            f"origen {solicitud.origen.ciudad} destino {solicitud.destino.ciudad}, "
             f"prioridad {solicitud.pedido.prioridad.value}"
         )
         fragmentos = self._repo.search_semantic(query, k=self._top_k)

@@ -1,10 +1,8 @@
 """
 ResponseParser – transforma la respuesta del LLM en un objeto de dominio.
 
-En Fase 6 el LLM ya no devuelve costos ni tiempos (ADR-0006).
-  - tiempo_estimado_min: se toma del corredor del grafo si está disponible.
-  - desglose_costo: placeholder en ceros hasta que CostCalculator (Fase 7)
-    lo calcule a partir del grafo.
+El LLM elige vehículo, justificación, alternativas y alertas.
+Costos y tiempos los calcula CostCalculator (ADR-0006).
 """
 from __future__ import annotations
 
@@ -15,12 +13,12 @@ import re
 from src.core.domain.models import (
     Alternativa,
     Alerta,
-    DesgloseCosto,
     NivelAlerta,
     RecomendacionVehiculo,
     SolicitudRecomendacion,
     VehiculoDisponible,
 )
+from src.core.services.cost_calculator import calcular_costo, calcular_tiempo
 
 logger = logging.getLogger(__name__)
 
@@ -43,20 +41,16 @@ class ResponseParser:
         alternativas = self._parse_alternativas(data.get("alternativas", []))
         alertas = self._parse_alertas(data.get("alertas", []))
 
-        # Tiempo del corredor del grafo; sino 120 min como placeholder
-        corredor = (contexto_grafo or {}).get("corredor") or {}
-        tiempo_min = int(
-            corredor.get("tiempo_estimado_min_carga")
-            or data.get("tiempo_estimado_min", 120)
-        )
+        ctx = contexto_grafo or {}
+        corredor = ctx.get("corredor") or {}
+        tarifas = ctx.get("tarifas") or []
 
-        # Costos: placeholder en ceros hasta Fase 7 (CostCalculator)
-        desglose = DesgloseCosto(
-            combustible_cop=0.0,
-            peajes_cop=0.0,
-            viaticos_cop=0.0,
-            seguro_cop=0.0,
-            imprevistos_cop=0.0,
+        tiempo_min = calcular_tiempo(corredor)
+        desglose = calcular_costo(
+            corredor=corredor,
+            vehiculo=vehiculo,
+            tarifas=tarifas,
+            peso_kg=solicitud.peso_total_kg,
         )
 
         return RecomendacionVehiculo.nuevo_trace(
@@ -74,17 +68,30 @@ class ResponseParser:
 
     def _extract_json(self, text: str) -> dict:
         text = text.strip()
+
+        # Intento 1: JSON puro
         try:
             return json.loads(text)
         except json.JSONDecodeError:
             pass
+
+        # Intento 2: bloque ```json ... ``` (respuesta típica de Ollama/LLaMA)
+        block = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        if block:
+            try:
+                return json.loads(block.group(1))
+            except json.JSONDecodeError:
+                pass
+
+        # Intento 3: primer objeto { ... } en el texto
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
             try:
                 return json.loads(match.group())
             except json.JSONDecodeError:
                 pass
-        logger.warning("No se pudo parsear JSON del LLM. Respuesta: %s", text[:200])
+
+        logger.warning("No se pudo parsear JSON del LLM. Respuesta completa:\n%s", text)
         raise ParseError("Respuesta del LLM no contiene JSON válido.")
 
     def _resolve_vehicle(

@@ -43,11 +43,10 @@ class Producto:
 
 
 @dataclass(frozen=True)
-class Cliente:
-    nombre: str
-    direccion: str
-    latitud: float
-    longitud: float
+class Ubicacion:
+    ciudad: str
+    departamento: Optional[str] = None
+    direccion: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -70,7 +69,8 @@ class Pedido:
 class SolicitudRecomendacion:
     pedido: Pedido
     productos: list[Producto]
-    cliente: Cliente
+    origen: Ubicacion
+    destino: Ubicacion
     canal: Canal
     flota_disponible: list[VehiculoDisponible]
 

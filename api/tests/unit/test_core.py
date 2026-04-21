@@ -11,8 +11,8 @@ from datetime import date
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from src.core.domain.models import (
-    Canal, Cliente, NivelAlerta, Pedido, Prioridad,
-    Producto, SolicitudRecomendacion, TipoVehiculo, VehiculoDisponible,
+    Canal, NivelAlerta, Pedido, Prioridad,
+    Producto, SolicitudRecomendacion, TipoVehiculo, Ubicacion, VehiculoDisponible,
 )
 from src.core.ports.interfaces import (
     EmbeddingProvider, Fragmento, KnowledgeRepository, LLMProvider, LLMResponse,
@@ -85,12 +85,8 @@ def _solicitud_base() -> SolicitudRecomendacion:
             Producto(nombre="Aguacate Hass", cantidad=1200, unidad="kg"),
             Producto(nombre="Plátano hartón", cantidad=800, unidad="kg"),
         ],
-        cliente=Cliente(
-            nombre="Distribuidora Andina S.A.",
-            direccion="Calle 80 # 45-12, Bogotá",
-            latitud=4.6782,
-            longitud=-74.0584,
-        ),
+        origen=Ubicacion(ciudad="Medellín", departamento="Antioquia"),
+        destino=Ubicacion(ciudad="Bogotá", departamento="Cundinamarca"),
         canal=Canal.MAYORISTA,
         flota_disponible=[
             VehiculoDisponible(id="VEH-015", tipo=TipoVehiculo.TERRESTRE, capacidad_kg=3500, refrigerado=True, matricula="ABC123"),
@@ -128,7 +124,8 @@ class TestSolicitudRecomendacion:
                 Producto("Papa", 2, "ton"),
                 Producto("Yuca", 500, "kg"),
             ],
-            cliente=Cliente("C", "Dir", 4.0, -74.0),
+            origen=Ubicacion(ciudad="Tunja"),
+            destino=Ubicacion(ciudad="Bogotá"),
             canal=Canal.MINORISTA,
             flota_disponible=[
                 VehiculoDisponible("V1", TipoVehiculo.TERRESTRE, 5000, False)
@@ -144,7 +141,8 @@ class TestSolicitudRecomendacion:
         sol = SolicitudRecomendacion(
             pedido=Pedido("X", date.today(), Prioridad.BAJA),
             productos=[Producto("Papa", 1000, "kg")],
-            cliente=Cliente("C", "Dir", 4.0, -74.0),
+            origen=Ubicacion(ciudad="Tunja"),
+            destino=Ubicacion(ciudad="Bogotá"),
             canal=Canal.MINORISTA,
             flota_disponible=[VehiculoDisponible("V1", TipoVehiculo.TERRESTRE, 5000, False)],
         )
@@ -263,6 +261,8 @@ class TestPromptBuilder:
         assert "Aguacate Hass" in prompt
         assert "VEH-015" in prompt
         assert "Contenido de prueba" in prompt
+        assert "Medellín" in prompt
+        assert "Bogotá" in prompt
 
     def test_user_prompt_indica_refrigeracion(self):
         pb = PromptBuilder()

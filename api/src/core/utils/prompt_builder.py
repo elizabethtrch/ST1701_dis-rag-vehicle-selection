@@ -119,14 +119,30 @@ class PromptBuilder:
             + (f", matrícula {v.matricula}" if v.matricula else "")
             for v in s.flota_disponible
         )
+        def _fmt_ubicacion(u) -> str:
+            partes = [u.ciudad]
+            if u.departamento:
+                partes.append(u.departamento)
+            if u.direccion:
+                partes.append(u.direccion)
+            return ", ".join(partes)
+
+        intra_urbana = s.origen.ciudad.lower() == s.destino.ciudad.lower()
+        ruta_nota = (
+            "⚠ Entrega intra-urbana (origen y destino en la misma ciudad). "
+            "No hay corredor inter-ciudad disponible en el grafo; "
+            "la selección se basa en características del producto y flota."
+            if intra_urbana else ""
+        )
         return (
             f"Pedido: {s.pedido.identificador}\n"
             f"Fecha entrega: {s.pedido.fecha_entrega}\n"
             f"Prioridad: {s.pedido.prioridad.value}\n"
             f"Canal: {s.canal.value}\n"
-            f"Cliente: {s.cliente.nombre} — {s.cliente.direccion}\n"
-            f"  Coordenadas: {s.cliente.latitud}, {s.cliente.longitud}\n\n"
-            f"Productos ({s.peso_total_kg:.0f} kg total):\n{productos_txt}\n\n"
+            f"Origen: {_fmt_ubicacion(s.origen)}\n"
+            f"Destino: {_fmt_ubicacion(s.destino)}\n"
+            + (f"{ruta_nota}\n" if ruta_nota else "")
+            + f"\nProductos ({s.peso_total_kg:.0f} kg total):\n{productos_txt}\n\n"
             f"Requiere refrigeración (estimado): {'SÍ' if s.requiere_refrigeracion else 'NO'}\n\n"
             f"Flota disponible:\n{flota_txt}"
         )
