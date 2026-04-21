@@ -200,6 +200,25 @@ DOCUMENTOS = [
     # legales, como referencia documental para el RAG.
     # -----------------------------------------------------------------------
     {
+        "id": "mintransporte_res_4100_2004",
+        "nombre": "mintransporte_resolucion_4100_2004_pesos_dimensiones_vehiculos.pdf",
+        "url": "https://web.mintransporte.gov.co/jspui/bitstream/001/4012/1/Resolucion_4100_2004.pdf",
+        "categoria": "02_catalogo_flota_vehicular",
+        "fuente": "MinTransporte",
+        "descripcion": (
+            "Resolución 4100 de 2004 del Ministerio de Transporte. Define los pesos y "
+            "dimensiones máximas permitidos para vehículos de carga en las vías de Colombia: "
+            "ancho máximo (2.60 m), alto máximo (4.20 m), longitud máxima por configuración, "
+            "peso bruto vehicular máximo por número de ejes (sencillo: 17 t, doble troque: "
+            "28.5 t, tractomula 3 ejes: 52 t). Incluye restricciones por categoría de vía "
+            "(primaria, secundaria, terciaria) y tolerancias. Documento normativo fundamental "
+            "para que el RAG valide si un vehículo recomendado puede circular por la ruta "
+            "seleccionada (Escenario B: vías terciarias con furgón refrigerado)."
+        ),
+        "tipo": "normativa",
+        "anno": 2004,
+    },
+    {
         "id": "mintransporte_decreto_tipos_vehiculos_carga",
         "nombre": "mintransporte_abc_sicetac_tipos_vehiculos_carga.pdf",
         "url": "https://web.mintransporte.gov.co/jspui/bitstream/001/10564/1/ABC-SICETAC%20%281%29%20%283%29.pdf",
@@ -225,6 +244,27 @@ DOCUMENTOS = [
     # -----------------------------------------------------------------------
     # CATEGORÍA 3 – Condiciones de rutas y vías
     # -----------------------------------------------------------------------
+    {
+        "id": "ideam_informe_clima_transporte",
+        "nombre": "ideam_informe_condiciones_climaticas_transporte.pdf",
+        "url": "https://bart.ideam.gov.co/wrfideam/new_modelo/CPT/informe/Informe.pdf",
+        "categoria": "03_condiciones_rutas_vias",
+        "fuente": "IDEAM — Instituto de Hidrología, Meteorología y Estudios Ambientales",
+        "descripcion": (
+            "Informe de condiciones climáticas de Colombia del IDEAM. Cubre temporadas "
+            "de lluvia (abril–mayo y octubre–noviembre), intensidad de precipitaciones "
+            "por región y alertas de riesgo. Clave para que el RAG razone sobre el impacto "
+            "de la temporada de lluvia en vías terciarias no pavimentadas y en el transporte "
+            "de carga perecedera frágil (flores de corte, mora, espárragos). "
+            "Resuelve el Bloqueo 3 del reporte de cobertura (Escenario B)."
+        ),
+        "tipo": "informe",
+        "anno": 2026,
+        "nota": (
+            "URL dinámica: el IDEAM actualiza este informe periódicamente. "
+            "Re-ejecutar la descarga antes de cada ingesta para obtener la versión vigente."
+        ),
+    },
     {
         "id": "mintransporte_sicetac_distancias_rutas",
         "nombre": "mintransporte_sicetac_distancias_tipo_terreno_rutas.xlsx",

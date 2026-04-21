@@ -91,8 +91,19 @@ def separador(titulo: str = ""):
         print(f"\n{linea}")
 
 
-def preguntar(pregunta: str, opciones: list = None) -> str:
-    """Interrumpe al agente y pide decisión al usuario."""
+def preguntar(pregunta: str, opciones: list = None, default_no_interactivo: str = None) -> str:
+    """Interrumpe al agente y pide decisión al usuario.
+
+    Si stdin no es un TTY (ej. ejecución vía make, CI), resuelve automáticamente
+    con `default_no_interactivo` si se provee, o con la primera opción en caso contrario.
+    """
+    import sys as _sys
+
+    if not _sys.stdin.isatty():
+        default = default_no_interactivo or (opciones[0] if opciones else "")
+        log(f"Modo no-interactivo: seleccionando '{default}' automáticamente.", "INFO")
+        return default
+
     separador("DECISIÓN REQUERIDA")
     print(f"\n  {pregunta}\n")
     if opciones:
@@ -874,8 +885,9 @@ def orquestar(args):
 
     # --- Decidir si descargar ---
     if not args.solo_estructurar:
-        if not estado["metadata_existe"] or not estado["pdfs_descargados"]:
-            log("No hay documentos descargados. Iniciando descarga...", "AGENTE")
+        if args.solo_descargar or not estado["metadata_existe"] or not estado["pdfs_descargados"]:
+            razon = "solicitado por --solo-descargar" if args.solo_descargar else "no hay documentos previos"
+            log(f"Iniciando descarga ({razon})...", "AGENTE")
             ejecutar_descarga()
             estado = evaluar_estado()
 
@@ -893,6 +905,7 @@ def orquestar(args):
                     "Continuar con los que ya están descargados",
                     "Ver la lista de fallidos y decidir después",
                 ],
+                default_no_interactivo="Continuar con los que ya están descargados",
             )
             if "Reintentar" in opcion:
                 ejecutar_descarga()
@@ -927,6 +940,7 @@ def orquestar(args):
                         "Continuar de todas formas",
                         "Detener aquí",
                     ],
+                    default_no_interactivo="Continuar de todas formas",
                 )
                 if "Reintentar" in opcion:
                     ejecutar_estructuracion(resultado_estructuracion["fallidos"])
@@ -945,6 +959,7 @@ def orquestar(args):
                 "¿Quieres completar los Markdowns que les falta la sección "
                 "'Fragmentos clave para el RAG'?",
                 opciones=["Sí, completarlos ahora", "No, dejarlos así"],
+                default_no_interactivo="No, dejarlos así",
             )
             if "Sí" in opcion:
                 ejecutar_estructuracion(
@@ -959,33 +974,37 @@ def orquestar(args):
         ejecutar_fichas_curateadas()
 
     # --- Fase 4A: Validación estructural determinística ---
-    exit_code_validacion = ejecutar_validacion_deterministica()
-    if exit_code_validacion == 2:
-        opcion = preguntar(
-            "La validación encontró errores que bloquearían la ingestión. "
-            "¿Qué deseas hacer?",
-            opciones=[
-                "Detener y revisar el reporte",
-                "Continuar de todas formas (no recomendado)",
-            ],
-        )
-        if "Detener" in opcion:
-            log(f"Revisa el reporte en: {REPORTE_VALIDACION}", "WARN")
-            return
+    if not args.solo_descargar:
+        exit_code_validacion = ejecutar_validacion_deterministica()
+        if exit_code_validacion == 2:
+            opcion = preguntar(
+                "La validación encontró errores que bloquearían la ingestión. "
+                "¿Qué deseas hacer?",
+                opciones=[
+                    "Detener y revisar el reporte",
+                    "Continuar de todas formas (no recomendado)",
+                ],
+                default_no_interactivo="Continuar de todas formas (no recomendado)",
+            )
+            if "Detener" in opcion:
+                log(f"Revisa el reporte en: {REPORTE_VALIDACION}", "WARN")
+                return
 
     # --- Fase 4B: Validación semántica (opcional) ---
     if args.validar_semantica:
         validar_semantica()
 
-    # --- Verificación de cobertura automática al final ---
-    separador("FASE FINAL — Verificación de cobertura")
-    opcion = preguntar(
-        "¿Deseas ejecutar la verificación de cobertura para saber "
-        "si la base está lista para ingestión?",
-        opciones=["Sí, verificar ahora", "No, terminar aquí"],
-    )
-    if "Sí" in opcion:
-        verificar_cobertura()
+    # --- Verificación de cobertura automática al final (solo en modo completo) ---
+    if not args.solo_descargar:
+        separador("FASE FINAL — Verificación de cobertura")
+        opcion = preguntar(
+            "¿Deseas ejecutar la verificación de cobertura para saber "
+            "si la base está lista para ingestión?",
+            opciones=["Sí, verificar ahora", "No, terminar aquí"],
+            default_no_interactivo="No, terminar aquí",
+        )
+        if "Sí" in opcion:
+            verificar_cobertura()
 
     separador("COMPLETADO")
     log("El agente terminó su ejecución.", "OK")
