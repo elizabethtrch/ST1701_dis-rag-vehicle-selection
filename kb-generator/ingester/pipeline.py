@@ -31,6 +31,8 @@ from .loaders.md_loader import load_md
 from .mappers.corredor import upsert_corredor
 from .mappers.documento import upsert_documento
 from .mappers.normativa import upsert_normativa
+from .mappers.producto import upsert_productos
+from .mappers.tarifa import upsert_tarifas
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +61,8 @@ def ingest_all(config: Config | None = None) -> dict:
         _ingest_documentos(neo, stats)
         _ingest_invias(neo, stats)
         _ingest_normativas(neo, stats)
+        _ingest_productos(neo, stats)
+        _ingest_tarifas(neo, stats)
         _ingest_mds(chroma, cfg, stats)
 
     logger.info(
@@ -127,6 +131,46 @@ def _ingest_normativas(neo: Neo4jClient, stats: dict) -> None:
             except Exception as exc:
                 logger.error("Normativa %s: %s", md_path.name, exc)
                 stats["errores"] += 1
+
+
+def _ingest_productos(neo: Neo4jClient, stats: dict) -> None:
+    fichas_path = ESTRUCTURADOS / "01_fichas_tecnicas_productos"
+    if not fichas_path.exists():
+        logger.warning("%s no existe; salto productos", fichas_path)
+        return
+
+    mds = list(fichas_path.glob("*.md"))
+    logger.info("Cargando productos desde %d fichas técnicas → (:Producto)", len(mds))
+
+    with neo.session() as session:
+        for md_path in mds:
+            try:
+                n = upsert_productos(session, md_path)
+                stats["documentos"] += n
+                logger.info("  ✓ %s → %d productos", md_path.name, n)
+            except Exception as exc:
+                logger.error("Ficha %s: %s", md_path.name, exc)
+                stats["errores"] += 1
+
+
+def _ingest_tarifas(neo: Neo4jClient, stats: dict) -> None:
+    sicetac_json = (
+        ESTRUCTURADOS / "04_tarifas_costos_transporte"
+        / "mintransporte_sicetac_peajes_por_rutas_con_tarifas.json"
+    )
+    if not sicetac_json.exists():
+        logger.warning("%s no existe; salto tarifas SICE-TAC", sicetac_json)
+        return
+
+    logger.info("Cargando tarifas SICE-TAC → (:Tarifa)-[:APLICA_A]->(:Corredor)")
+    with neo.session() as session:
+        try:
+            n = upsert_tarifas(session, sicetac_json, INVIAS_PATH)
+            stats["documentos"] += n
+            logger.info("  ✓ %d tarifas SICE-TAC vinculadas a corredores", n)
+        except Exception as exc:
+            logger.error("Tarifas SICE-TAC: %s", exc)
+            stats["errores"] += 1
 
 
 def _ingest_mds(chroma: ChromaClient, cfg: Config, stats: dict, root: Path | None = None) -> None:
