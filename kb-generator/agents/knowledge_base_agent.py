@@ -777,7 +777,11 @@ def verificar_cobertura():
     """Lanza un subagente para evaluar la cobertura de la base de conocimiento."""
     separador("FASE 4 — Verificando cobertura")
 
-    markdowns = list(BASE_CONOCIMIENTO.rglob("*.md"))
+    REPORTES_EXCLUIDOS = {"reporte_cobertura.md", "reporte_validacion_semantica.md"}
+    markdowns = [
+        m for m in BASE_CONOCIMIENTO.rglob("*.md")
+        if m.name not in REPORTES_EXCLUIDOS
+    ]
     fuentes = list(markdowns)
     if INVIAS_CORREDORES_JSON.exists():
         fuentes.append(INVIAS_CORREDORES_JSON)
