@@ -26,3 +26,4 @@ kb-generator/base_conocimiento/
 .pytest_cache/
 .coverage
 htmlcov/
+.sh

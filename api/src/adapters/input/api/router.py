@@ -11,6 +11,7 @@ from typing import Annotated, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBearer
 from pydantic import BaseModel, Field, field_validator, model_validator
 import uuid
 
@@ -124,6 +125,7 @@ def create_app() -> FastAPI:
         docs_url="/docs",
         redoc_url="/redoc",
     )
+    _bearer = HTTPBearer(auto_error=False)
 
     # ── Dependencia: servicios cacheados por proveedor LLM ───
     _services: dict[str, RecommendationService] = {}
@@ -179,6 +181,7 @@ def create_app() -> FastAPI:
     )
     def recomendar_vehiculo(
         request: RecomendacionRequest,
+        _auth: None = Depends(_bearer),
     ) -> RecomendacionResponse:
         service = get_service(request.llm_provider)
         # Mapear schema → dominio
