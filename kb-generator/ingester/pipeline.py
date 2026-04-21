@@ -30,6 +30,7 @@ from .loaders.invias_loader import load_invias
 from .loaders.md_loader import load_md
 from .mappers.corredor import upsert_corredor
 from .mappers.documento import upsert_documento
+from .mappers.normativa import upsert_normativa
 
 logger = logging.getLogger(__name__)
 
@@ -57,10 +58,11 @@ def ingest_all(config: Config | None = None) -> dict:
     with Neo4jClient(cfg.neo4j_uri, cfg.neo4j_user, cfg.neo4j_password) as neo:
         _ingest_documentos(neo, stats)
         _ingest_invias(neo, stats)
+        _ingest_normativas(neo, stats)
         _ingest_mds(chroma, cfg, stats)
 
     logger.info(
-        "Ingesta completa: %d documentos, %d corredores, %d chunks (chroma=%d), %d errores",
+        "Ingesta completa: %d docs/normativas, %d corredores, %d chunks (chroma=%d), %d errores",
         stats["documentos"],
         stats["corredores"],
         stats["chunks"],
@@ -104,6 +106,26 @@ def _ingest_invias(neo: Neo4jClient, stats: dict) -> None:
                 stats["corredores"] += 1
             except Exception as exc:
                 logger.error("Corredor %s: %s", corredor.get("id"), exc)
+                stats["errores"] += 1
+
+
+def _ingest_normativas(neo: Neo4jClient, stats: dict) -> None:
+    normativa_path = ESTRUCTURADOS / "05_normativa_transporte"
+    if not normativa_path.exists():
+        logger.warning("%s no existe; salto normativas", normativa_path)
+        return
+
+    mds = list(normativa_path.glob("*.md"))
+    logger.info("Cargando %d normativas → (:Normativa) + relaciones", len(mds))
+
+    with neo.session() as session:
+        for md_path in mds:
+            try:
+                upsert_normativa(session, md_path)
+                stats["documentos"] += 1
+                logger.info("  ✓ normativa %s", md_path.name)
+            except Exception as exc:
+                logger.error("Normativa %s: %s", md_path.name, exc)
                 stats["errores"] += 1
 
 
