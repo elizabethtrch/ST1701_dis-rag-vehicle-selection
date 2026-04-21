@@ -23,20 +23,27 @@ los que entrega la fase.
 | 0 | ADRs + estructura `docs/` | ✅ completo | `9e1b0ca` |
 | 1 | `docker-compose.yml` + `.gitignore` + bootstrap + README kb-generator | ✅ completo | `17550f5` |
 | 2 | Schema inicial Neo4j + Makefile + migración pyproject.toml | ✅ completo | `cbc6c2c`, `4b2982c` |
-| 3 | Módulo `kb-generator/ingester/` (loaders, chunker, clientes, mappers) | ⬜ pendiente | — |
-| 4 | CLI del ingester (`ingest-all`, `ingest-file`, `reindex`, `stats`) | ⬜ pendiente | — |
+| 3 | Módulo `kb-generator/ingester/` (loaders, chunker, clientes, mappers) | ✅ completo | — |
+| 4 | CLI del ingester (`ingest-all`, `ingest-file`, `reindex`, `stats`) | ✅ completo | — |
 | 5 | API: `ChromaAdapter` HTTP + `Neo4jAdapter` + puerto `GraphRepository` | ✅ completo | — |
-| 6 | `RecommendationService` con ~5 queries Cypher fijas + retrieval Chroma | ⬜ pendiente | — |
-| 7 | Calculador determinista de costos y tiempos (ADR-0006) | ⬜ pendiente | — |
-| 8 | Limpieza API: borrar `ingestion_service.py` y `ingest_cli.py` | ⬜ pendiente | — |
-| 9 | Hook en `knowledge_base_agent.py` para disparar ingesta al final | ⬜ pendiente | — |
+| 6 | `RecommendationService` con ~5 queries Cypher fijas + retrieval Chroma | ✅ completo | `a019480` |
+| 7 | Calculador determinista de costos y tiempos (ADR-0006) | ✅ completo | `39b5a68` |
+| 8 | Limpieza API: borrar `ingestion_service.py` y `ingest_cli.py` | ✅ completo | `75ad420` |
+| 9 | Hook en `knowledge_base_agent.py` para disparar ingesta al final | ❌ descartado | — |
 
-Leyenda: ✅ completo · ⏳ en progreso/validación · ⬜ pendiente · ⚠️ bloqueado
+Leyenda: ✅ completo · ⏳ en progreso/validación · ⬜ pendiente · ⚠️ bloqueado · ❌ descartado
 
-## Bloqueador actual
+## Estado actual
 
-Ninguno. Fases 1-5 completadas. Siguiente: **Fase 6 —
-`RecommendationService` con Cypher fijo + Chroma retrieval**.
+Pipeline completo. Flujo de dos pasos para construir y cargar la base de conocimiento:
+
+```bash
+make build-kb       # descarga + estructura + verifica (kb-generator)
+make ingest-all     # ingesta MDs + corredores → ChromaDB + Neo4j
+```
+
+La ingesta se mantiene como paso explícito separado (Fase 9 descartada)
+para tener control granular sobre cuándo re-ingestar.
 
 ### Limitación conocida — rutas no cubiertas por los 15 corredores INVIAS
 
