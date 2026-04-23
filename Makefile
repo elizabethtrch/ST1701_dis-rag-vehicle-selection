@@ -4,7 +4,7 @@
 .PHONY: help bootstrap up down restart logs ps health ollama-pull \
         install install-kb install-api \
         schema-init schema-verify ingest-all \
-        run-api api-test \
+        run-api api-test eval-llm eval-run eval-analyze eval-analyze-md eval-export \
         build-kb build-kb-download build-kb-structure build-kb-verify build-kb-corredores build-kb-curado build-kb-update-ideam
 
 COMPOSE := docker compose
@@ -52,6 +52,10 @@ health: ## chequeos rápidos de acceso a Chroma + Neo4j + Ollama
 	@curl -s http://localhost:11434/api/tags | python3 -c \
 		"import sys,json; [print(' ',m['name']) for m in json.load(sys.stdin).get('models',[])] or print('  (sin modelos descargados)')" \
 		|| echo "  ✗ Ollama no responde"
+	@echo
+	@echo "→ Langfuse health:"
+	@curl -s -o /dev/null -w "  HTTP %{http_code}\n" http://localhost:3000/api/public/health \
+		|| echo "  ✗ Langfuse no responde"
 
 ollama-pull: ## descarga un modelo; uso: `make ollama-pull M=llama3.1`
 	@test -n "$(M)" || { echo "Especifica el modelo: make ollama-pull M=llama3.1"; exit 1; }
@@ -73,6 +77,47 @@ install-api: $(VPY) ## instala solo api (editable) en el .venv compartido
 	$(VPY) -m pip install -e ./api
 
 # ── API ──────────────────────────────────────────────────────
+
+eval-run: ## ejecuta peticiones y envía scores a Langfuse SIN análisis; uso: make eval-run P=ollama,google N=10
+	@test -x $(VPY) || { echo "Falta venv. Corre: make install"; exit 1; }
+	$(VPY) eval/llm_comparison_agent.py \
+		--providers $${P:-ollama,google,openai} \
+		--count $${N:-10} \
+		--output $${O:-eval/reporte_comparacion.md} \
+		--env api/.env \
+		--no-analysis
+
+eval-llm: ## compara LLMs con Claude Code; uso: make eval-llm P=ollama,google N=10 O=eval/reporte.md
+	@test -x $(VPY) || { echo "Falta venv. Corre: make install"; exit 1; }
+	$(VPY) eval/llm_comparison_agent.py \
+		--providers $${P:-ollama,google,openai} \
+		--count $${N:-10} \
+		--output $${O:-eval/reporte_comparacion.md} \
+		--env api/.env
+
+eval-analyze-md: ## analiza reporte Markdown previo con Claude Code; uso: make eval-analyze-md D=eval/reporte_comparacion.md
+	@test -x $(VPY) || { echo "Falta venv. Corre: make install"; exit 1; }
+	@test -n "$(D)" || { echo "Especifica el MD: make eval-analyze-md D=eval/reporte_comparacion.md"; exit 1; }
+	$(VPY) eval/llm_comparison_agent.py \
+		--analyze-md $(D) \
+		--output $${O:-eval/reporte_con_analisis.md} \
+		--env api/.env
+
+eval-export: ## exporta trazas + scores de Langfuse a CSV/JSON; uso: make eval-export L=500 F=both
+	@test -x $(VPY) || { echo "Falta venv. Corre: make install"; exit 1; }
+	$(VPY) eval/export_langfuse.py \
+		--env api/.env \
+		--output eval/langfuse_export \
+		--limit $${L:-500} \
+		--format $${F:-both}
+
+eval-analyze: ## re-analiza datos previos con Claude Code; uso: make eval-analyze D=eval/reporte_comparacion.json
+	@test -x $(VPY) || { echo "Falta venv. Corre: make install"; exit 1; }
+	@test -n "$(D)" || { echo "Especifica el JSON: make eval-analyze D=eval/reporte_comparacion.json"; exit 1; }
+	$(VPY) eval/llm_comparison_agent.py \
+		--analyze-only $(D) \
+		--output $${O:-eval/reporte_comparacion.md} \
+		--env api/.env
 
 api-test: ## ejecuta tests unitarios de la API
 	@test -x $(VPY) || { echo "Falta venv. Corre: make install"; exit 1; }
