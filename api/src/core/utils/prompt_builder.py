@@ -84,14 +84,15 @@ class PromptBuilder:
         semantico = self._formatear_contexto(fragmentos)
         estructurado = self._formatear_grafo(contexto_grafo)
         solicitud_txt = self._formatear_solicitud(solicitud)
-        alternativas_ids = self._ids_no_seleccionados(solicitud)
+        todos_ids = self._todos_los_ids_flota(solicitud)
         return (
             f"<document_context>\n{semantico}\n</document_context>\n\n"
             f"<graph_context>\n{estructurado}\n</graph_context>\n\n"
             f"<request>\n{solicitud_txt}\n</request>\n\n"
             f"Asigna el vehículo óptimo siguiendo el workflow definido.\n"
-            f"IMPORTANTE: incluye en 'alternativas' una entrada por cada vehículo "
-            f"NO seleccionado ({alternativas_ids}), explicando por qué fue descartado."
+            f"IMPORTANTE: la flota disponible es [{todos_ids}]. "
+            f"Una vez elijas el vehículo óptimo, incluye en 'alternativas' "
+            f"una entrada por cada vehículo que NO hayas seleccionado, explicando por qué fue descartado."
         )
 
     def _build_user_prompt_xml(
@@ -104,7 +105,7 @@ class PromptBuilder:
         graph_ctx = self._xml_graph_context(contexto_grafo)
         transport = self._xml_transport_request(solicitud)
         fleet = self._xml_available_fleet(solicitud)
-        alternativas_ids = self._ids_no_seleccionados(solicitud)
+        todos_ids = self._todos_los_ids_flota(solicitud)
         return (
             f"<input_data>\n"
             f"{doc_ctx}\n\n"
@@ -114,9 +115,9 @@ class PromptBuilder:
             f"</input_data>\n\n"
             f"<instruction_trigger>\n"
             f"Analiza los datos anteriores y genera el JSON con los siguientes campos OBLIGATORIOS:\n"
-            f'- "vehiculo_id": ID del vehículo seleccionado.\n'
+            f'- "vehiculo_id": ID del vehículo seleccionado de la flota [{todos_ids}].\n'
             f'- "justificacion": explicación técnica en español de por qué ese vehículo es el óptimo (OBLIGATORIO, no puede estar vacío).\n'
-            f'- "alternativas": una entrada por cada vehículo NO seleccionado ({alternativas_ids}), '
+            f'- "alternativas": una entrada por cada vehículo de [{todos_ids}] que NO hayas seleccionado, '
             f"explicando por qué fue descartado.\n"
             f'- "alertas": lista de alertas si hay limitaciones, o lista vacía.\n'
             f"</instruction_trigger>"
@@ -124,9 +125,8 @@ class PromptBuilder:
 
     # ── helpers compartidos ───────────────────────────────────
 
-    def _ids_no_seleccionados(self, solicitud: SolicitudRecomendacion) -> str:
-        ids = [v.id for v in solicitud.flota_disponible]
-        return ", ".join(ids[1:]) if len(ids) > 1 else "ninguno"
+    def _todos_los_ids_flota(self, solicitud: SolicitudRecomendacion) -> str:
+        return ", ".join(v.id for v in solicitud.flota_disponible)
 
     # ── helpers formato plano ─────────────────────────────────
 

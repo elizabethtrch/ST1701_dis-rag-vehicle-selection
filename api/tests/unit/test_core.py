@@ -16,6 +16,7 @@ from src.core.domain.models import (
 )
 from src.core.ports.interfaces import (
     EmbeddingProvider, Fragmento, KnowledgeRepository, LLMProvider, LLMResponse,
+    ObservabilityPort,
 )
 from src.core.services.recommendation_service import RecommendationService
 from src.core.utils.response_parser import ResponseParser, ParseError
@@ -75,6 +76,21 @@ class FakeLLMProvider(LLMProvider):
 
     def count_tokens(self, text):
         return len(text) // 4
+
+
+class FakeObservabilityAdapter(ObservabilityPort):
+    def __init__(self):
+        self.calls: list[dict] = []
+        self.scores: list[dict] = []
+
+    def trace_recommendation(self, **kwargs) -> None:
+        self.calls.append(kwargs)
+
+    def score_recommendation(self, trace_id, scores, comments=None) -> None:
+        self.scores.append({"trace_id": trace_id, "scores": scores})
+
+    def flush(self) -> None:
+        pass
 
 
 # ── Fixture de solicitud ──────────────────────────────────────
@@ -206,6 +222,56 @@ class TestRecommendationService:
     def test_strict_output_false_por_defecto(self):
         llm = FakeLLMProvider(_respuesta_llm_valida())
         assert llm.strict_output is False
+
+    def test_observabilidad_registra_scores(self):
+        obs = FakeObservabilityAdapter()
+        service = RecommendationService(
+            knowledge_repo=FakeKnowledgeRepo(),
+            llm_provider=FakeLLMProvider(_respuesta_llm_valida()),
+            observability=obs,
+        )
+        service.recomendar(_solicitud_base())
+        assert len(obs.scores) == 1
+        scores = obs.scores[0]["scores"]
+        _EXPECTED_KEYS = {
+            "adherencia_schema", "seleccion_vehiculo", "calidad_justificacion",
+            "completitud_alternativas", "veracidad", "relevancia",
+            "precision_tecnica", "idioma", "promedio",
+        }
+        assert _EXPECTED_KEYS == set(scores.keys())
+        assert all(0 <= v <= 10 for v in scores.values())
+
+    def test_observabilidad_registra_traza(self):
+        obs = FakeObservabilityAdapter()
+        llm = FakeLLMProvider(_respuesta_llm_valida())
+        service = RecommendationService(
+            knowledge_repo=FakeKnowledgeRepo(),
+            llm_provider=llm,
+            observability=obs,
+        )
+        service.recomendar(_solicitud_base())
+        assert len(obs.calls) == 1
+        assert obs.calls[0]["vehiculo_seleccionado"] == "VEH-015"
+        assert obs.calls[0]["solicitud_id"] == "PED-TEST-001"
+
+    def test_sin_observabilidad_no_falla(self):
+        service = RecommendationService(
+            knowledge_repo=FakeKnowledgeRepo(),
+            llm_provider=FakeLLMProvider(_respuesta_llm_valida()),
+            observability=None,
+        )
+        result = service.recomendar(_solicitud_base())
+        assert result.vehiculo_recomendado.id == "VEH-015"
+
+    def test_null_observability_adapter_es_noop(self):
+        from src.adapters.output.observability.langfuse_adapter import NullObservabilityAdapter
+        obs = NullObservabilityAdapter()
+        obs.trace_recommendation(
+            trace_id="t1", solicitud_id="p1", proveedor="test", modelo="m",
+            system_prompt="", user_prompt="", respuesta="", tokens_entrada=0,
+            tokens_salida=0, latencia_ms=0, vehiculo_seleccionado="V1",
+        )
+        obs.flush()
 
     def test_strict_output_activa_prompt_extendido(self):
         captured = {}
@@ -391,11 +457,13 @@ class TestPromptBuilder:
         prompt = pb.build_user_prompt(_solicitud_base(), [])
         assert "SÍ" in prompt  # requiere_refrigeracion = True para aguacate
 
-    def test_user_prompt_menciona_vehiculos_alternativos(self):
+    def test_user_prompt_menciona_todos_los_vehiculos(self):
         pb = PromptBuilder()
         prompt = pb.build_user_prompt(_solicitud_base(), [])
         assert "alternativas" in prompt
-        assert "VEH-022" in prompt  # único vehículo no primero en la flota base
+        # Ambos vehículos deben aparecer — el modelo decide cuál descartar
+        assert "VEH-015" in prompt
+        assert "VEH-022" in prompt
 
     def test_user_prompt_strict_usa_xml(self):
         pb = PromptBuilder()
@@ -455,6 +523,7 @@ if __name__ == "__main__":
         TestResponseParser,
         TestPromptBuilder,
     ]
+
 
     total = passed = failed = 0
     for suite_cls in suites:

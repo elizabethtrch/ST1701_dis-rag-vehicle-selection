@@ -160,7 +160,62 @@ class LLMProvider(ABC):
 
 
 # ══════════════════════════════════════════════════════════════
-# Puerto 3 – EmbeddingProvider
+# Puerto 3 – ObservabilityPort
+# ══════════════════════════════════════════════════════════════
+
+# Nombres canónicos de scores — única fuente de verdad.
+# Cualquier fuente que envíe scores a Langfuse debe usar exactamente estas claves.
+SCORE_KEYS: tuple[str, ...] = (
+    "adherencia_schema",
+    "seleccion_vehiculo",
+    "calidad_justificacion",
+    "completitud_alternativas",
+    "veracidad",
+    "relevancia",
+    "precision_tecnica",
+    "idioma",
+    "promedio",
+)
+
+
+class ObservabilityPort(ABC):
+    """Abstrae el registro de trazas de inferencia LLM."""
+
+    @abstractmethod
+    def trace_recommendation(
+        self,
+        trace_id: str,
+        solicitud_id: str,
+        proveedor: str,
+        modelo: str,
+        system_prompt: str,
+        user_prompt: str,
+        respuesta: str,
+        tokens_entrada: int,
+        tokens_salida: int,
+        latencia_ms: int,
+        vehiculo_seleccionado: str,
+        metadata: dict | None = None,
+    ) -> None: ...
+
+    @abstractmethod
+    def score_recommendation(
+        self,
+        trace_id: str,
+        scores: dict[str, float],
+        comments: dict[str, str] | None = None,
+    ) -> None:
+        """Adjunta puntajes de calidad a una traza existente."""
+        ...
+
+    @abstractmethod
+    def flush(self) -> None:
+        """Envía trazas pendientes antes de cerrar."""
+        ...
+
+
+# ══════════════════════════════════════════════════════════════
+# Puerto 4 – EmbeddingProvider
 # ══════════════════════════════════════════════════════════════
 
 class EmbeddingProvider(ABC):
