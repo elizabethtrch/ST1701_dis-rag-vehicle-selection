@@ -37,8 +37,8 @@ Medellín, 2025
    - 3.1 Diseño de la evaluación
    - 3.2 Solicitudes de prueba
    - 3.3 Métricas de evaluación
-   - 3.4 Resultados generales
-   - 3.5 Análisis por solicitud
+   - 3.4 Resultados comparativos por proveedor
+   - 3.5 Análisis por proveedor
    - 3.6 Análisis por dimensión
 4. Hallazgos y discusión
 5. Conclusiones
@@ -70,6 +70,20 @@ La Figura 1 presenta la vista general del sistema con las relaciones entre sus c
 *Figura 1. Vista general de la arquitectura implementada.*
 
 ```mermaid
+%%{init: {
+  'theme': 'base',
+  'themeVariables': {
+    'primaryColor': '#e1f5fe',
+    'primaryTextColor': '#2c3e50',
+    'primaryBorderColor': '#b3e5fc',
+    'lineColor': '#95a5a6',
+    'secondaryColor': '#f3e5f5',
+    'tertiaryColor': '#e8f5e9',
+    'mainBkg': '#ffffff',
+    'nodeBorder': '#d1d9e6',
+    'clusterBkg': '#fafafa'
+  }
+}}%%
 graph TB
     subgraph cliente["Cliente externo"]
         C[Sistema consumidor<br>HTTP/JSON]
@@ -118,6 +132,20 @@ La Figura 2 presenta el flujo del pipeline de ingesta de extremo a extremo.
 *Figura 2. Pipeline de ingesta de la base de conocimiento.*
 
 ```mermaid
+%%{init: {
+  'theme': 'base',
+  'themeVariables': {
+    'primaryColor': '#e1f5fe',
+    'primaryTextColor': '#2c3e50',
+    'primaryBorderColor': '#b3e5fc',
+    'lineColor': '#95a5a6',
+    'secondaryColor': '#f3e5f5',
+    'tertiaryColor': '#e8f5e9',
+    'mainBkg': '#ffffff',
+    'nodeBorder': '#d1d9e6',
+    'clusterBkg': '#fafafa'
+  }
+}}%%
 flowchart TD
     A["Documentos fuente<br>PDF · XLS · API INVIAS"] --> B["Agente estructurador<br>Python + Claude SDK"]
     B --> C["Archivos Markdown<br>YAML front matter + contenido estructurado"]
@@ -146,6 +174,20 @@ El flujo de inferencia siguió cuatro fases desde la recepción de la solicitud 
 *Figura 3. Diagrama de secuencia del flujo de inferencia RAG.*
 
 ```mermaid
+%%{init: {
+  'theme': 'base',
+  'themeVariables': {
+    'primaryColor': '#e1f5fe',
+    'primaryTextColor': '#2c3e50',
+    'primaryBorderColor': '#b3e5fc',
+    'lineColor': '#95a5a6',
+    'secondaryColor': '#f3e5f5',
+    'tertiaryColor': '#e8f5e9',
+    'mainBkg': '#ffffff',
+    'nodeBorder': '#d1d9e6',
+    'clusterBkg': '#fafafa'
+  }
+}}%%
 sequenceDiagram
     actor C as Cliente
     participant R as Router FastAPI
@@ -237,7 +279,7 @@ La implementación conservó los elementos estructurales definidos en [1]: la ar
 |---|---|---|
 | Puerto de grafos | `KnowledgeRepository` cubría grafo y base vectorial | `GraphRepository` como puerto independiente de Neo4j con cuatro operaciones Cypher |
 | Puerto de observabilidad | No contemplado | `ObservabilityPort` con `LangfuseAdapter` self-hosted |
-| Calculador de costos | `CostCalculator` como módulo separado (ADR-0006) | Excluido del alcance. Restricción explícita en el prompt. |
+| Calculador de costos de transporte | `CostCalculator` como módulo separado (ADR-0006) | Implementado como función determinista en `cost_calculator.py`. Consume del grafo la distancia del corredor y los peajes (`valor_cop`); aplica constantes SICE-TAC para combustible, viáticos y seguro de carga. El LLM tiene prohibición explícita de generar valores de costo para evitar alucinaciones. |
 | Segmentador de texto | `RecursiveCharacterTextSplitter` de LangChain | Implementación propia por palabras (`chunk_size=800`, `overlap=80`) |
 | Recuperación semántica | Una consulta genérica | Dos consultas: genérica más consulta filtrada por categoría de flota |
 | Plantillas de prompt | Una plantilla única | Dos plantillas: base y estricta, según `strict_output` del adaptador |
@@ -247,7 +289,7 @@ La separación de `GraphRepository` como puerto independiente respondió a la ne
 
 La adición de `ObservabilityPort` no estaba en la propuesta inicial. La necesidad surgió durante el desarrollo al requerirse trazabilidad auditable de cada inferencia para el proceso de evaluación experimental. Langfuse, desplegado como servicio self-hosted, permitió registrar prompts, respuestas y scores sin transmitir datos a servidores externos, coherente con la política de privacidad establecida para el adaptador de Ollama.
 
-El `CostCalculator` contemplado en ADR-0006 no se implementó en esta entrega. La restricción se reflejó en el prompt del sistema mediante una instrucción explícita de prohibición, lo que evitó que el modelo generara valores económicos sin base en los datos de la solicitud.
+El `CostCalculator` contemplado en ADR-0006 se implementó como módulo determinista en `cost_calculator.py`. La restricción en el prompt del sistema prohibió al LLM generar valores de costo; el cálculo efectivo recayó sobre el módulo determinista, que consumió la distancia del corredor y los peajes desde Neo4j para estimar combustible, viáticos, seguro y peajes.
 
 ---
 
@@ -255,9 +297,9 @@ El `CostCalculator` contemplado en ADR-0006 no se implementó en esta entrega. L
 
 ### 3.1 Diseño de la evaluación
 
-La evaluación midió la calidad de las recomendaciones producidas por el sistema con el adaptador de Ollama activo. Se diseñaron seis solicitudes de prueba, identificadas de EVAL-001 a EVAL-006, cada una con una respuesta esperada definida: el vehículo óptimo, los vehículos aceptables y los criterios de rechazo para los demás vehículos de la flota disponible. Las solicitudes cubrieron escenarios con niveles de dificultad diferenciados: requisito de refrigeración para productos perecederos, restricción estricta de capacidad, ambigüedad entre dos vehículos con características similares y casos con restricciones de ruta.
+La evaluación midió la calidad de las recomendaciones producidas por el sistema con tres proveedores de modelo de lenguaje: Ollama con qwen2.5:3b-instruct-q4_K_M como representante de modelos locales, Google con Gemini 2.5 Flash y OpenAI con GPT-4o-mini como representantes de modelos comerciales en la nube. Se diseñaron seis solicitudes de prueba, identificadas de EVAL-001 a EVAL-006, cada una con una respuesta esperada definida: el vehículo óptimo, los vehículos aceptables y los criterios de rechazo para los demás vehículos de la flota disponible. Las solicitudes cubrieron escenarios con niveles de dificultad diferenciados: requisito de refrigeración para productos perecederos, restricción estricta de capacidad, ambigüedad entre dos vehículos con características similares y casos con restricciones de ruta.
 
-Las trazas se generaron de forma iterativa con el comando `make eval-run`, que ejecutó las solicitudes y registró los resultados en Langfuse sin activar el análisis cualitativo posterior con LLM. El análisis cualitativo se reservó para la etapa de evaluación con el agente `llm_comparison_agent.py`. El total de trazas con scores completos alcanzó 41, distribuidas en 38 ejecuciones del periodo de evaluación formal más 3 trazas tempranas sin scores registrados, excluidas del análisis cuantitativo.
+La comparación formal ejecutó cada solicitud una vez por proveedor (18 respuestas en total: 6 solicitudes por 3 proveedores). Las trazas generadas de forma iterativa con el comando `make eval-run` registraron 41 trazas con scores completos en Langfuse, distribuidas entre los tres proveedores. Se excluyeron del análisis cuantitativo las 3 trazas tempranas sin scores registrados. El agente `llm_comparison_agent.py` registró las trazas y el `RecommendationService` calculó los nueve scores de forma determinista sobre cada respuesta parseada.
 
 ### 3.2 Solicitudes de prueba
 
@@ -295,87 +337,102 @@ La evaluación operó con nueve dimensiones de scoring calculadas de forma deter
 | `relevancia` | La justificación aborda explícitamente la restricción determinante del caso |
 | `promedio` | Media aritmética de las ocho dimensiones anteriores |
 
-### 3.4 Resultados generales
+### 3.4 Resultados comparativos por proveedor
 
-El promedio global del sistema sobre las 41 trazas evaluadas fue de 8.18 sobre 10. Las dimensiones de adherencia estructural y lingüística alcanzaron el máximo posible en todos los casos. Las dimensiones semánticas, que dependieron de la coherencia entre la justificación producida y las restricciones específicas de cada solicitud, presentaron mayor variabilidad.
+La Tabla 5 presenta los resultados de la comparación formal entre los tres proveedores sobre las seis solicitudes de prueba (n = 6 por proveedor).
 
-La Tabla 5 presenta las estadísticas descriptivas por dimensión.
+*Tabla 5. Comparación de proveedores por dimensión de evaluación (media ± desv. estándar, n = 6 por proveedor).*
 
-*Tabla 5. Estadísticas por dimensión de evaluación (n = 41).*
-
-| Dimensión | Promedio | Mínimo | Máximo |
+| Dimensión | Ollama (qwen2.5:3b) | Google (gemini-2.5-flash) | OpenAI (gpt-4o-mini) |
 |---|:---:|:---:|:---:|
-| Adherencia de esquema | 10.00 | 10.0 | 10.0 |
-| Idioma | 10.00 | 10.0 | 10.0 |
-| Calidad de justificación | 10.00 | 10.0 | 10.0 |
-| Precisión técnica | 7.88 | 7.0 | 10.0 |
-| Selección de vehículo | 8.29 | 4.0 | 10.0 |
-| Completitud de alternativas | 7.76 | 5.0 | 10.0 |
-| Veracidad | 5.85 | 3.0 | 10.0 |
-| Relevancia | 5.63 | 0.0 | 10.0 |
-| Promedio global | 8.18 | 6.2 | 9.6 |
+| Adherencia al esquema | 10.0 ± 0.0 | 10.0 ± 0.0 | 10.0 ± 0.0 |
+| Selección del vehículo | 6.67 ± 3.01 | 9.67 ± 0.82 | 7.67 ± 2.94 |
+| Calidad de justificación | 10.0 ± 0.0 | 10.0 ± 0.0 | 10.0 ± 0.0 |
+| Completitud de alternativas | 5.83 ± 2.04 | 8.67 ± 2.16 | 7.0 ± 2.45 |
+| Veracidad | 4.33 ± 1.37 | 7.5 ± 1.22 | 6.33 ± 1.63 |
+| Relevancia | 3.17 ± 2.48 | 7.33 ± 2.25 | 6.0 ± 2.19 |
+| Precisión técnica | 7.5 ± 1.22 | 8.0 ± 1.55 | 7.5 ± 1.22 |
+| Idioma | 10.0 ± 0.0 | 10.0 ± 0.0 | 10.0 ± 0.0 |
+| Latencia media | 188.36 s | 14.61 s | 5.1 s |
+| **Promedio global** | **7.19/10** | **8.90/10** | **8.06/10** |
 
-La Figura 4 presenta la distribución de promedios por dimensión de forma gráfica.
+Como se aprecia en la Tabla 5, Google obtuvo el mayor promedio global (8.90/10), seguido de OpenAI (8.06/10) y Ollama (7.19/10). Las dimensiones de adherencia al esquema, calidad de justificación e idioma alcanzaron el valor máximo en los tres proveedores, lo que confirmó que el diseño del prompt garantizó conformidad estructural con independencia del modelo empleado. Las mayores diferencias entre proveedores se concentraron en relevancia (3.17 vs. 7.33 vs. 6.0) y veracidad (4.33 vs. 7.5 vs. 6.33), que miden la coherencia entre la justificación producida y los datos concretos de la solicitud.
 
-*Figura 4. Promedio por dimensión de evaluación sobre 41 trazas.*
+La Figura 4 presenta los promedios de las cinco dimensiones con mayor variabilidad entre proveedores.
+
+*Figura 4. Comparación por dimensión en las cinco dimensiones diferenciadas (Ollama / Google / OpenAI).*
 
 ```mermaid
+%%{init: {
+  'theme': 'base',
+  'themeVariables': {
+    'primaryColor': '#e1f5fe',
+    'primaryTextColor': '#2c3e50',
+    'primaryBorderColor': '#b3e5fc',
+    'lineColor': '#95a5a6',
+    'secondaryColor': '#f3e5f5',
+    'tertiaryColor': '#e8f5e9',
+    'mainBkg': '#ffffff',
+    'nodeBorder': '#d1d9e6',
+    'clusterBkg': '#fafafa'
+  }
+}}%%
 xychart-beta
-    title "Promedio por dimensión de evaluación (n = 41)"
-    x-axis ["adherencia", "idioma", "calidad_just.", "prec. técnica", "selec. vehículo", "completitud", "veracidad", "relevancia"]
-    y-axis "Puntaje promedio (0-10)" 0 --> 10
-    bar [10.00, 10.00, 10.00, 7.88, 8.29, 7.76, 5.85, 5.63]
+    title "Dimensiones diferenciadas: Ollama / Google / OpenAI"
+    x-axis ["selec. vehículo", "completitud", "veracidad", "relevancia", "prec. técnica"]
+    y-axis "Promedio (0-10)" 0 --> 10
+    bar [6.67, 5.83, 4.33, 3.17, 7.5]
+    bar [9.67, 8.67, 7.5, 7.33, 8.0]
+    bar [7.67, 7.0, 6.33, 6.0, 7.5]
 ```
 
-Las tres primeras dimensiones presentaron varianza cero: el sistema generó en todos los casos respuestas en JSON válido, en español y con justificaciones que superaron el umbral mínimo de extensión y vocabulario técnico. Este resultado confirmó que el modo de salida estructurada del adaptador de Ollama, reforzado por el prompt estricto, fue suficiente para garantizar la conformidad formal de la respuesta.
+### 3.5 Análisis por proveedor
 
-### 3.5 Análisis por solicitud
+**Ollama (qwen2.5:3b-instruct-q4_K_M).** El modelo local seleccionó el vehículo técnicamente correcto en cuatro de seis solicitudes. En EVAL-002 eligió VEH-04, refrigerado con capacidad de 3 000 kg, para transportar 4 500 kg de papa pastusa y yuca. Esta elección violó la restricción de capacidad y asignó refrigeración innecesaria para productos que no la requieren. En EVAL-003 seleccionó VEH-06 mientras la justificación describía VEH-05 como el vehículo óptimo: una contradicción interna que evidenció dificultades del modelo para distinguir el vehículo elegido del alternativo dentro de una misma respuesta. La estructura de nivel superior del JSON fue perfecta en todas las solicitudes, pero los subcampos de `alternativas` variaron entre respuestas con nombres distintos (`justificacion_descartado`, `descartado_por`, `explicacion`), lo que dificulta el parseo automatizado sin lógica de fallback. La latencia promedio de 188.36 s hace inviable el uso interactivo en tiempo real.
 
-**EVAL-001.** El sistema seleccionó el vehículo óptimo en la totalidad de las 13 ejecuciones. Los scores de relevancia variaron entre 3.0 y 10.0, con una media de 7.08. La variabilidad reflejó diferencias en la profundidad de la justificación: algunas ejecuciones mencionaron explícitamente el criterio determinante del caso, mientras otras produjeron justificaciones de carácter genérico con menor valor informativo para el coordinador logístico.
+**Google (gemini-2.5-flash).** El modelo de Google seleccionó el vehículo técnicamente correcto en las seis solicitudes y no presentó contradicciones internas. Las justificaciones citaron documentos del contexto RAG por nombre y número, y referenciaron normativa colombiana específica (Resolución 002505 de 2004, Resolución 2674 de 2013). En EVAL-004, donde dos vehículos cumplieron todas las restricciones, Google eligió VEH-08 (2 500 kg) sobre VEH-07 (5 000 kg) por ajuste de capacidad más eficiente, lo que demostró razonamiento de optimización más allá de la verificación binaria de restricciones. La latencia promedio de 14.61 s es compatible con flujos interactivos. Las respuestas llegaron envueltas en bloques de código Markdown, lo que requirió una etapa de extracción adicional en el `ResponseParser`.
 
-**EVAL-002.** El sistema seleccionó el vehículo óptimo (VEH-03) en cinco de ocho ejecuciones (62.5%). En las tres ejecuciones en que se eligió VEH-04, los scores de selección de vehículo cayeron a 4.0 y los de relevancia a 0.0, por tratarse de un vehículo que no cumplió el criterio determinante del caso. La media de 8.02 incluyó estas ejecuciones subóptimas, lo que indica que el análisis por solicitud es más informativo que el promedio agregado para identificar escenarios problemáticos.
-
-**EVAL-003.** Este caso presentó el desempeño más bajo (7.42) y la mayor variabilidad de selección: 62.5% de las ejecuciones eligieron VEH-06 (subóptimo), mientras el óptimo (VEH-05) se seleccionó en el 37.5% restante. La inspección de los fragmentos recuperados indicó que el contexto documental disponible para este caso contenía información insuficiente para discriminar con claridad entre las características determinantes de ambos vehículos. Este caso identificó una debilidad del pipeline de recuperación semántica en presencia de restricciones sutiles entre opciones similares.
-
-**EVAL-004.** El sistema seleccionó VEH-07 en cinco de seis ejecuciones (83.3%), con scores de selección de 8.0 en esas ejecuciones. El score de 8.0, en lugar de 10.0, correspondió a que VEH-07 representó la mejor opción dentro de las restricciones pero con una limitación de capacidad parcial. En la ejecución en que se eligió VEH-08, el score de selección alcanzó 10.0, confirmando que ese vehículo fue igualmente aceptable para el caso.
-
-**EVAL-005.** Con tres ejecuciones, el sistema seleccionó VEH-10 (subóptimo) en dos de ellas y VEH-09 (óptimo) en una. La media de 7.91 reflejó el impacto de las selecciones incorrectas. El reducido volumen de trazas para este caso limitó la robustez estadística del resultado.
-
-**EVAL-006.** El sistema seleccionó VEH-12 en la totalidad de las tres ejecuciones, con un promedio de 8.00. Los scores de relevancia se situaron en 5.0, indicando que las justificaciones produjeron el vehículo correcto pero sin abordar explícitamente el criterio determinante del caso.
+**OpenAI (gpt-4o-mini).** El modelo de OpenAI obtuvo un desempeño intermedio (8.06/10) con selecciones correctas en cuatro de seis solicitudes. En EVAL-003 eligió VEH-06, sin refrigeración, para el transporte de rosas frescas y claveles, sin aplicar la regla de prioridad de frío del prompt del sistema. En EVAL-005 eligió VEH-10, sin refrigeración, para leche pasteurizada y queso fresco, argumentando que los lácteos no requieren cadena de frío activa. En EVAL-004, al igual que Ollama y a diferencia de Google, eligió VEH-07 por mayor margen de capacidad. La latencia promedio de 5.1 s fue la menor de los tres proveedores. Las respuestas entregaron JSON limpio sin envoltorios de Markdown.
 
 ### 3.6 Análisis por dimensión
 
-**Dimensiones con puntaje perfecto: adherencia, idioma, calidad de justificación.** El prompt estricto del sistema, con el bloque `<constraints>` y el ejemplo de respuesta JSON, garantizó salida JSON válida en todos los casos. Las justificaciones superaron el mínimo de extensión y presencia de vocabulario técnico en el 100% de las ejecuciones. Este resultado es relevante: demuestra que el prompt engineering para SLMs locales, cuando se diseña con suficiente detalle estructural, alcanza la conformidad formal de forma consistente.
+**Dimensiones con puntaje perfecto en los tres proveedores: adherencia al esquema, calidad de justificación, idioma.** Los tres modelos generaron JSON con los cuatro campos canónicos, produjeron justificaciones con vocabulario técnico del dominio logístico y respondieron en español en la totalidad de las solicitudes. El diseño del prompt, en modo base para LLMs comerciales y en modo estricto para Ollama, garantizó conformidad estructural y lingüística con independencia del proveedor.
 
-**Precisión técnica (7.88).** La dimensión presentó dos valores discretos: 7.0 (presencia de vocabulario técnico general) o 10.0 (presencia de términos del dominio específico como "cadena de frío", "vehículo refrigerado" o "normativa de transporte de alimentos"). La distribución bimodal indica que el sistema generó respuestas técnicas en todos los casos, con un subconjunto que alcanzó mayor especificidad terminológica según el contexto recuperado.
+**Selección del vehículo.** Esta dimensión presentó la mayor diferencia entre el modelo de mejor y peor desempeño. Google alcanzó 9.67 con una desviación de ±0.82 y seleccionó el vehículo correcto en las seis solicitudes. OpenAI registró 7.67 (±2.94) con dos fallas en casos de prioridad de frío para productos perecederos. Ollama obtuvo el valor más bajo (6.67, ±3.01) con dos fallas graves: una violación simultánea de capacidad y refrigeración en EVAL-002, y una contradicción interna en la justificación en EVAL-003. La elevada variabilidad de Ollama y OpenAI indicó que el razonamiento con restricciones simultáneas favorece modelos de mayor capacidad de inferencia.
 
-**Selección de vehículo (8.29).** La variabilidad en esta dimensión correlacionó directamente con la dificultad del caso. Los escenarios con criterio determinante claro (EVAL-001, EVAL-006) registraron 10.0 en todas las ejecuciones. Los escenarios con ambigüedad entre vehículos (EVAL-003, EVAL-005) presentaron selecciones erróneas que redujeron el promedio a valores entre 4.0 y 8.0.
+**Completitud de alternativas.** Google obtuvo 8.67 frente a 7.0 de OpenAI y 5.83 de Ollama. Las respuestas de Google incluyeron motivos de rechazo coherentes con el criterio determinante del caso en todas las solicitudes. La variabilidad de Ollama (±2.04) reflejó respuestas donde los motivos de rechazo no correspondieron a las restricciones técnicas aplicables.
 
-**Completitud de alternativas (7.76).** La distribución fue bimodal: 10.0 cuando el sistema listó todos los vehículos rechazados con justificación coherente al criterio del caso, y 5.0 cuando los motivos de rechazo estuvieron presentes pero sin conexión con la restricción determinante. La ausencia de valores intermedios sugiere que el prompt fue suficientemente claro en solicitar la lista de alternativas, pero no en especificar la profundidad del razonamiento de rechazo requerida.
+**Veracidad y relevancia.** Estas dimensiones registraron las mayores brechas entre proveedores. En veracidad, Google (7.5) superó en 3.17 puntos a Ollama (4.33) y en 1.17 puntos a OpenAI (6.33). En relevancia, la diferencia entre Google (7.33) y Ollama (3.17) ascendió a 4.16 puntos. Ollama tendió a producir justificaciones técnicas genéricas sin mencionar el peso específico de la carga, las ciudades de la ruta ni el criterio que determinó la selección. Google integró estos datos de forma sistemática. OpenAI ocupó una posición intermedia en ambas dimensiones.
 
-**Veracidad (5.85).** Esta dimensión midió si la justificación mencionó el producto transportado, el peso total y la ciudad de destino. El promedio de 5.85 reveló que el sistema frecuentemente omitió uno o dos de estos elementos, especialmente el peso específico de la carga. Las justificaciones tendieron a referirse a "la carga" de forma genérica sin cuantificarla con los datos de la solicitud.
+**Precisión técnica.** Los tres proveedores obtuvieron puntajes similares: 7.5 para Ollama y OpenAI, 8.0 para Google. La diferencia radicó en la profundidad de la citación: Google referenció fuentes documentales y normativa colombiana específica con mayor frecuencia, mientras que Ollama y OpenAI mencionaron términos técnicos del dominio sin vincularlos a los documentos recuperados por el pipeline RAG.
 
-**Relevancia (5.63, mínimo 0.0).** La dimensión con mayor variabilidad mostró que el sistema no garantizó la referencia explícita al criterio determinante del caso en la justificación. Cuando la restricción era la necesidad de refrigeración, el prompt no siempre indujo al modelo a mencionar la cadena de frío como argumento central. Esta dimensión identificó la brecha más significativa entre la calidad formal de la respuesta y su valor informativo efectivo para el coordinador logístico.
+**Latencia.** La diferencia operativa más determinante entre proveedores fue la latencia: 188.36 s para Ollama, 14.61 s para Google y 5.1 s para OpenAI. Ollama es inviable para uso interactivo en tiempo real. Google y OpenAI demostraron latencias compatibles con flujos de trabajo logísticos donde la respuesta se espera en el orden de segundos.
 
 ---
 
 ## 4. Hallazgos y discusión
 
-Los resultados de la evaluación señalaron tres hallazgos con implicaciones directas sobre el diseño del sistema.
+Los resultados de la evaluación señalaron cinco hallazgos con implicaciones directas sobre el diseño del sistema.
 
-El primero concierne al prompt engineering para SLMs. El modo estricto del `PromptBuilder` garantizó conformidad estructural plena, pero no fue suficiente para inducir al modelo local a producir justificaciones que abordaran explícitamente el criterio determinante del caso. En pruebas informales con LLMs comerciales, la relevancia de las justificaciones fue notablemente mayor sin necesidad del modo estricto. Esta diferencia motivó la recomendación de agregar, en versiones futuras, una sección `<key_constraint>` en el prompt que destaque el criterio determinante antes del bloque de instrucción de generación.
+El primero concierne a la comparación entre proveedores de modelo de lenguaje. En las seis solicitudes evaluadas, Google (gemini-2.5-flash) registró el mayor promedio global (8.90/10), seguido de OpenAI (8.06/10) y Ollama (7.19/10). Las dimensiones que mayor diferencia marcaron entre proveedores fueron relevancia (4.16 puntos de diferencia entre Google y Ollama) y veracidad (3.17 puntos). Google fue el único proveedor que seleccionó el vehículo correcto en la totalidad de las solicitudes; OpenAI y Ollama presentaron fallas en casos donde la regla de prioridad de frío debía combinarse con la evaluación de capacidad. En materia de latencia, OpenAI (5.1 s) y Google (14.61 s) son compatibles con uso interactivo en producción. Ollama, con 188.36 s por solicitud, es apta para desarrollo local y entornos sin conectividad donde la latencia no sea un factor determinante.
 
-El segundo hallazgo concierne al pipeline de recuperación. EVAL-003 evidenció que la recuperación semántica genérica no discriminó con suficiente precisión entre vehículos similares en el contexto documental. La incorporación del doble paso de recuperación (consulta genérica más consulta filtrada por categoría de flota) fue un avance respecto a la propuesta inicial; no obstante, no resolvió los casos de ambigüedad entre opciones con características próximas. Una estrategia de recuperación con re-ranking o expansión de consulta mejoraría la precisión en estos escenarios.
+El segundo concierne al prompt engineering diferenciado. El modo estricto del `PromptBuilder`, diseñado para SLMs locales, garantizó conformidad estructural plena en Ollama, pero no fue suficiente para inducir justificaciones que abordaran el criterio determinante del caso. En los LLMs comerciales, la relevancia de las justificaciones fue mayor sin necesidad del modo estricto, lo que indicó que la riqueza semántica depende principalmente de la capacidad del modelo y no del nivel de detalle del prompt. Esta diferencia motiva agregar, en versiones futuras, una sección `<key_constraint>` en el prompt que destaque el criterio determinante antes del bloque de generación.
 
-El tercer hallazgo concierne a las métricas de evaluación. Las dimensiones de veracidad y relevancia mostraron que un score global alto (8.18) no garantiza que la justificación aporte valor al coordinador logístico. Un sistema que generó JSON válido en español con vocabulario técnico obtuvo un score estructural perfecto, aun cuando la justificación no mencionó el criterio que determinó la selección. Las métricas cuantitativas deben complementarse con evaluación cualitativa por parte de expertos del dominio en iteraciones futuras del sistema.
+El tercero concierne al pipeline de recuperación. EVAL-003 evidenció que la recuperación semántica genérica no discriminó con suficiente precisión entre vehículos similares en el contexto documental. La incorporación del doble paso de recuperación (consulta genérica más consulta filtrada por categoría de flota) fue un avance respecto a la propuesta inicial; no obstante, no resolvió los casos de ambigüedad entre opciones con características próximas. Una estrategia de recuperación con re-ranking o expansión de consulta mejoraría la precisión en estos escenarios.
+
+El cuarto concierne a las métricas de evaluación. Las dimensiones de veracidad y relevancia mostraron que un score global alto no garantiza que la justificación aporte valor al coordinador logístico. Un sistema que generó JSON válido en español con vocabulario técnico obtuvo un score estructural perfecto, aun cuando la justificación no mencionó el criterio que determinó la selección. Las métricas cuantitativas deben complementarse con evaluación cualitativa por parte de expertos del dominio en iteraciones futuras.
+
+El quinto concierne a la separación entre selección técnica y optimización de costo. El `RecommendationService` operó en dos fases desacopladas: el LLM seleccionó el vehículo con base en criterios técnicos (refrigeración, capacidad, normativa) y, una vez tomada esa decisión, `cost_calculator.py` calculó el costo del flete a partir de la distancia y los peajes de Neo4j. El costo no intervino en la decisión del LLM. En escenarios donde dos o más vehículos cumplieron igualmente los requisitos técnicos, el sistema careció de mecanismo para preferir la opción más económica. Esta limitación se manifestó en EVAL-004, donde VEH-07 y VEH-08 alternaron su selección entre proveedores sin que el costo diferencial incidiera en el resultado.
+
+La mejora propuesta consiste en incorporar una fase de desempate por costo dentro del `RecommendationService`, posterior a la respuesta del LLM. El flujo ampliado operaría así: el LLM identifica el conjunto de vehículos técnicamente válidos; el `RecommendationService` calcula el costo estimado para cada uno mediante `calcular_costo()`; se selecciona el de menor costo total cuando la diferencia técnica entre candidatos no supera un umbral predefinido. Esta lógica respetaría la separación de responsabilidades de la arquitectura hexagonal: el LLM razona sobre criterios cualitativos y el módulo determinista optimiza el criterio económico, sin que ninguno invada el dominio del otro.
 
 ---
 
 ## 5. Conclusiones
 
-El sistema RAG para selección inteligente de vehículos se implementó en su totalidad siguiendo la arquitectura hexagonal propuesta en [1]. Los cinco puertos definidos, con sus respectivos adaptadores, permitieron integrar ChromaDB, Neo4j, cuatro proveedores de LLM y Langfuse sin modificar la lógica de dominio. La evaluación experimental sobre 41 trazas arrojó un promedio global de 8.18 sobre 10.
+El sistema RAG para selección inteligente de vehículos se implementó en su totalidad siguiendo la arquitectura hexagonal propuesta en [1]. Los cinco puertos definidos, con sus respectivos adaptadores, permitieron integrar ChromaDB, Neo4j, cuatro proveedores de LLM y Langfuse sin modificar la lógica de dominio. La comparación formal entre tres proveedores (Ollama, Google y OpenAI) identificó a Google (gemini-2.5-flash) como el proveedor de mayor desempeño global (8.90/10), seguido de OpenAI GPT-4o-mini (8.06/10) y Ollama qwen2.5:3b (7.19/10). Las 41 trazas registradas en Langfuse confirman el comportamiento del sistema a lo largo del periodo de evaluación.
 
-Las dimensiones de conformidad estructural alcanzaron el máximo en todos los casos, lo que confirmó la viabilidad del enfoque de salida estructurada mediante prompt engineering diferenciado según el tipo de modelo. Las dimensiones semánticas, en particular relevancia (5.63) y veracidad (5.85), identificaron oportunidades de mejora concretas: un bloque de restricción determinante en el prompt y una estrategia de recuperación con re-ranking para casos de ambigüedad documental.
+Las dimensiones de conformidad estructural alcanzaron el máximo en los tres proveedores, lo que confirmó la viabilidad del enfoque de salida estructurada mediante prompt engineering diferenciado según el tipo de modelo. Las dimensiones semánticas, en particular relevancia y veracidad, registraron las mayores brechas entre proveedores e identificaron las oportunidades de mejora más concretas: un bloque de restricción determinante en el prompt y una estrategia de recuperación con re-ranking para casos de ambigüedad documental.
 
 La separación entre el generador de la base de conocimiento y la API de inferencia demostró su valor práctico: la base documental se actualizó múltiples veces durante el desarrollo sin requerir modificaciones en el servicio. Esta característica es determinante para la operación del sistema en un entorno logístico donde las normativas de transporte [7, 8], las condiciones de los corredores viales [12] y los catálogos de flota se actualizan con frecuencia.
 
@@ -440,4 +497,5 @@ La adopción de `SCORE_KEYS` como única fuente de verdad para los nombres de di
 | ICA | Instituto Colombiano Agropecuario |
 | INVIMA | Instituto Nacional de Vigilancia de Medicamentos y Alimentos |
 | OCR | Optical Character Recognition |
+| k (vecinos más cercanos) | Parámetro de búsqueda vectorial que indica cuántos fragmentos recupera ChromaDB por consulta. En este sistema se usaron k=6 para la consulta genérica y k=3 para la consulta filtrada por categoría de flota. Un valor mayor amplía el contexto disponible para el LLM pero incrementa el costo de procesamiento del prompt. |
 
