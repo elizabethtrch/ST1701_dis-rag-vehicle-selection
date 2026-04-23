@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-opus-4-6"
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
+    openai_temperature: float = 0.2
+    openai_timeout: float = 60.0
     google_api_key: str = ""
     google_model: str = "gemini-2.0-flash-lite"
     ollama_base_url: str = "http://localhost:11434"
@@ -47,6 +49,12 @@ class Settings(BaseSettings):
 
     # Ingestión (legado — se elimina en Fase 8)
     knowledge_base_path: str = "./data/knowledge_base"
+
+    # Observabilidad — Langfuse
+    langfuse_enabled: bool = False
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_host: str = "http://localhost:3000"
 
     # API
     api_host: str = "0.0.0.0"
@@ -108,7 +116,12 @@ def _build_llm_provider(settings: Settings):
         return AnthropicAdapter(settings.anthropic_api_key, settings.anthropic_model)
     if provider == "openai":
         from src.adapters.output.llm.openai_adapter import OpenAIAdapter
-        return OpenAIAdapter(settings.openai_api_key, settings.openai_model)
+        return OpenAIAdapter(
+            api_key=settings.openai_api_key,
+            model=settings.openai_model,
+            temperature=settings.openai_temperature,
+            timeout=settings.openai_timeout,
+        )
     if provider == "google":
         from src.adapters.output.llm.google_adapter import GoogleAdapter
         return GoogleAdapter(settings.google_api_key, settings.google_model)
@@ -125,13 +138,38 @@ def _build_llm_provider(settings: Settings):
     raise ValueError(f"LLM provider desconocido: {provider}")
 
 
+def _build_observability(settings: Settings):
+    import logging
+    _log = logging.getLogger(__name__)
+    if not settings.langfuse_enabled:
+        _log.info("Observabilidad: Langfuse DESACTIVADO (LANGFUSE_ENABLED=false)")
+        from src.adapters.output.observability.langfuse_adapter import NullObservabilityAdapter
+        return NullObservabilityAdapter()
+    if not settings.langfuse_public_key:
+        _log.warning("Observabilidad: LANGFUSE_ENABLED=true pero LANGFUSE_PUBLIC_KEY está vacío")
+        from src.adapters.output.observability.langfuse_adapter import NullObservabilityAdapter
+        return NullObservabilityAdapter()
+    _log.info(
+        "Observabilidad: Langfuse ACTIVO → host=%s public_key=%s...",
+        settings.langfuse_host,
+        settings.langfuse_public_key[:8],
+    )
+    from src.adapters.output.observability.langfuse_adapter import LangfuseAdapter
+    return LangfuseAdapter(
+        public_key=settings.langfuse_public_key,
+        secret_key=settings.langfuse_secret_key,
+        host=settings.langfuse_host,
+    )
+
+
 def build_recommendation_service(settings: Settings):
     from src.core.services.recommendation_service import RecommendationService
     emb = _build_embedding_provider(settings)
     repo = _build_chroma_adapter(settings, emb)
     llm = _build_llm_provider(settings)
     graph = _build_neo4j_adapter(settings)
-    return RecommendationService(knowledge_repo=repo, llm_provider=llm, graph_repo=graph)
+    obs = _build_observability(settings)
+    return RecommendationService(knowledge_repo=repo, llm_provider=llm, graph_repo=graph, observability=obs)
 
 
 def build_recommendation_service_with_llm(settings: Settings, llm_provider: str):
@@ -143,6 +181,7 @@ def build_recommendation_service_with_llm(settings: Settings, llm_provider: str)
     repo = _build_chroma_adapter(settings, emb)
     llm = _build_llm_provider(override)
     graph = _build_neo4j_adapter(settings)
-    return RecommendationService(knowledge_repo=repo, llm_provider=llm, graph_repo=graph)
+    obs = _build_observability(settings)
+    return RecommendationService(knowledge_repo=repo, llm_provider=llm, graph_repo=graph, observability=obs)
 
 

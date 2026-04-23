@@ -17,6 +17,8 @@ echo "→ Preparando volúmenes en ./data/ para UID=$HOST_UID GID=$HOST_GID"
 mkdir -p data/chroma
 mkdir -p data/neo4j/data data/neo4j/logs data/neo4j/import data/neo4j/plugins
 mkdir -p data/ollama
+# langfuse-db corre como postgres (uid 999) internamente — solo creamos el directorio
+mkdir -p data/langfuse-db
 
 # Chroma escribe su log en /chroma/chroma.log (fuera del volumen de
 # datos). Si no pre-existe como archivo, Docker lo crearía como

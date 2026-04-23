@@ -1,4 +1,5 @@
 # Entorno
+credentials.txt
 .env
 .venv/
 venv/
@@ -30,3 +31,12 @@ kb-generator/base_conocimiento/
 .coverage
 htmlcov/
 .sh
+
+# Eval — artefactos generados (exportaciones y reportes)
+eval/langfuse_export_*
+eval/reporte_*
+
+# docs/entrega_2 — solo se versiona el MD y el PDF de entrega 1
+docs/entrega_2/*
+!docs/entrega_2/entrega_1_final_unificado.pdf
+!docs/entrega_2/entrega_final_disenio_y_analisis.md

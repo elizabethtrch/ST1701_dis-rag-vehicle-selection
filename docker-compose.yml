@@ -53,6 +53,49 @@ services:
       timeout: 5s
       retries: 10
   
+  langfuse-db:
+    image: postgres:16-alpine
+    container_name: rag-langfuse-db
+    restart: unless-stopped
+    # PostgreSQL requiere correr como su usuario interno (uid 999).
+    # No se usa user: host-uid porque initdb falla con UID arbitrario.
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+    volumes:
+      - ./data/langfuse-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: rag-langfuse
+    restart: unless-stopped
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+    ports:
+      - "${LANGFUSE_PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+      NEXTAUTH_SECRET: "${LANGFUSE_SECRET:-changeme-in-prod}"
+      NEXTAUTH_URL: "http://localhost:${LANGFUSE_PORT:-3000}"
+      SALT: "${LANGFUSE_SALT:-changeme-salt-in-prod}"
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/public/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
   ollama:
     image: ollama/ollama:rocm
     container_name: rag-ollama
