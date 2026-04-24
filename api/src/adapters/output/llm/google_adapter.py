@@ -25,8 +25,8 @@ class GoogleAdapter(LLMProvider):
 
         import google.generativeai as genai
         self._model_name = model
+        self._genai = genai
         genai.configure(api_key=api_key or os.environ["GOOGLE_API_KEY"])
-        self._model = genai.GenerativeModel(model)
 
     @property
     def nombre_modelo(self) -> str:
@@ -38,11 +38,13 @@ class GoogleAdapter(LLMProvider):
         user_prompt: str,
         max_tokens: int = 1500,
     ) -> LLMResponse:
-        prompt_completo = f"{system_prompt}\n\n{user_prompt}"
-        response = self._model.generate_content(prompt_completo)
+        model = self._genai.GenerativeModel(
+            self._model_name,
+            system_instruction=system_prompt,
+        )
+        response = model.generate_content(user_prompt)
         texto = response.text
-        # Gemini no siempre expone conteo de tokens de forma sencilla
-        tokens_in = len(prompt_completo) // 4
+        tokens_in = len(system_prompt + user_prompt) // 4
         tokens_out = len(texto) // 4
         return LLMResponse(
             texto=texto,
