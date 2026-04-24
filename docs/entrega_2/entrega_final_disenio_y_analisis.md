@@ -9,7 +9,7 @@
 **Autores:**
 Edward Alejandro Rayo Cortés, Elizabeth Toro Chalarca, Santiago Andrés Cardona Julio
 
-Medellín, 2025
+Medellín, 2026
 
 ---
 
@@ -99,9 +99,10 @@ graph TB
         direction TB
         AE[Adaptadores de entrada<br>FastAPI Router · CLI]
         subgraph nucleo["Núcleo hexagonal"]
-            RS[RecommendationService<br>+ CostCalculator]
+            RS[RecommendationService]
             PB[PromptBuilder]
             RP[ResponseParser]
+            CC[CostCalculator]
         end
         subgraph puertos["Puertos — interfaces abstractas"]
             PK[KnowledgeRepository]
@@ -133,7 +134,7 @@ graph TB
 
     C -->|"POST /api/v1/vehicle-recommendation"| AE
     AE --> RS
-    RS --> PB & RP
+    RS --> PB & RP & CC
     RS --> PK & PG & PL & PE & PO
     PK --> AKV
     PG --> AGR
@@ -285,12 +286,7 @@ El `PromptBuilder` implementó dos plantillas versionadas bajo el identificador 
 
 El prompt del sistema estableció cuatro elementos. Primero, el rol: ingeniero de logística agrícola colombiana con la responsabilidad de asignar el vehículo óptimo con base en datos técnicos, normativos y de carga. Segundo, las reglas de contexto: prioridad de refrigeración para productos perecederos, respeto de la capacidad máxima del vehículo, selección del vehículo más adecuado con alerta de nivel alto cuando ninguno cumplió todos los requisitos, y prohibición de mencionar costos o tiempos de tránsito. Tercero, el flujo de trabajo en cuatro pasos: análisis del pedido, comparación con el contexto recuperado, selección del vehículo y redacción de la justificación. Cuarto, el formato de salida: JSON plano sin bloques de código markdown ni texto introductorio.
 
-El prompt del usuario estructuró la información en cuatro secciones:
-
-- `<document_context>`: fragmentos recuperados de ChromaDB con categoría, fuente y score de similitud.
-- `<graph_context>`: datos del corredor vial, requisitos del producto desde Neo4j, normativa aplicable y tarifas disponibles.
-- `<transport_request>`: identificador del pedido, fecha de entrega, prioridad, ruta origen-destino y detalle de los productos con peso total.
-- `<available_fleet>`: lista de vehículos con identificador, tipo, capacidad en kilogramos y bandera de refrigeración.
+El prompt del usuario estructuró la información en cuatro secciones: `<document_context>`, con los fragmentos recuperados de ChromaDB con categoría, fuente y score de similitud; `<graph_context>`, con los datos del corredor vial, requisitos del producto desde Neo4j, normativa aplicable y tarifas disponibles; `<transport_request>`, con el identificador del pedido, fecha de entrega, prioridad, ruta origen-destino y detalle de los productos con peso total; y `<available_fleet>`, con la lista de vehículos con identificador, tipo, capacidad en kilogramos y bandera de refrigeración.
 
 La instrucción de cierre del prompt del usuario precisó los campos obligatorios de la respuesta y solicitó explícitamente una entrada en `alternativas` por cada vehículo de la flota no seleccionado, con el motivo de rechazo correspondiente. Esta instrucción fue determinante para mejorar la completitud de las alternativas respecto a versiones anteriores del prompt.
 
@@ -332,7 +328,7 @@ El `CostCalculator` contemplado en ADR-0006 se implementó como módulo determin
 
 La evaluación midió la calidad de las recomendaciones producidas por el sistema con tres proveedores de modelo de lenguaje: Ollama con qwen2.5:3b-instruct-q4_K_M como representante de modelos locales, Google con Gemini 2.5 Flash y OpenAI con GPT-4o-mini como representantes de modelos comerciales en la nube. Se diseñaron seis solicitudes de prueba, identificadas de EVAL-001 a EVAL-006, cada una con una respuesta esperada definida: el vehículo óptimo, los vehículos aceptables y los criterios de rechazo para los demás vehículos de la flota disponible. Las solicitudes cubrieron escenarios con niveles de dificultad diferenciados: requisito de refrigeración para productos perecederos, restricción estricta de capacidad, ambigüedad entre dos vehículos con características similares y casos con restricciones de ruta.
 
-La comparación formal ejecutó cada solicitud una vez por proveedor (18 respuestas en total: 6 solicitudes por 3 proveedores). Las trazas generadas de forma iterativa con el comando `make eval-run` registraron 41 trazas con scores completos en Langfuse, distribuidas entre los tres proveedores. Se excluyeron del análisis cuantitativo las 3 trazas tempranas sin scores registrados. El agente `llm_comparison_agent.py` registró las trazas y el `RecommendationService` calculó los nueve scores de forma determinista sobre cada respuesta parseada.
+La comparación formal ejecutó cada solicitud una vez por proveedor (18 respuestas en total: 6 solicitudes por 3 proveedores). Las trazas generadas de forma iterativa con el comando `make eval-run` registraron 41 trazas en Langfuse durante el ciclo inicial, distribuidas entre los tres proveedores; 3 de ellas correspondieron a ejecuciones tempranas sin scores registrados y se excluyeron del análisis cuantitativo. Las 6 trazas del segundo ciclo de validación con `system_instruction` activo se documentan en la Tabla 8, completando un total de 47 trazas en el repositorio de Langfuse. El agente `llm_comparison_agent.py` registró las trazas y el `RecommendationService` calculó los nueve scores de forma determinista sobre cada respuesta parseada.
 
 ### 3.2 Solicitudes de prueba
 
