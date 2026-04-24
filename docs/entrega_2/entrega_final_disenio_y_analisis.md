@@ -44,8 +44,12 @@ Medellín, 2025
    - 4.1 Consideraciones de las librerías y frameworks
    - 4.2 Análisis de las herramientas
 5. Conclusiones
-6. Referencias
-7. Apéndice A. Glosario de siglas y abreviaturas
+6. Posibles integraciones Evergreen
+   - 6.1 Integración con PRO y PLA: demanda de transporte a partir de ventanas de cosecha
+   - 6.2 Integración con FIN: enriquecimiento de tarifas y visibilidad de costos logísticos
+   - 6.3 Integración con ANA: analítica del pipeline de recomendación y mejora de prompts
+7. Referencias
+8. Apéndice A. Glosario de siglas y abreviaturas
 
 ---
 
@@ -488,7 +492,33 @@ Desde la perspectiva de los SLMs, la separación de roles cobra mayor relevancia
 
 ---
 
-## 6. Referencias
+## 6. Posibles integraciones Evergreen
+
+El sistema RAG de selección de vehículo operó como un servicio autónomo dentro de la plataforma Evergreen. Los insumos que recibió y los datos que produjo señalaron puntos de articulación naturales con otros módulos RAG del ecosistema. Se identificaron tres integraciones con potencial de valor bilateral para la plataforma, derivadas del análisis de las salidas y entradas de los equipos PRO, PLA, FIN y ANA.
+
+### 6.1 Integración con PRO y PLA: demanda de transporte a partir de ventanas de cosecha
+
+El equipo PRO construyó un asistente RAG que generó recomendaciones por parcela, incluyendo la ventana de cosecha proyectada, el tipo de cultivo y el rendimiento estimado, a partir de datos de fase de crecimiento, ubicación, condiciones ambientales y pronóstico meteorológico. El equipo PLA construyó un recomendador de cultivo cuya salida se almacenó en la entidad `ProyectoDePlaneacion` del módulo PLA, con cronograma estimado, región del municipio y estimación de rentabilidad por parcela. Ambas salidas contienen los datos que el servicio de vehículo requirió para producir una recomendación: el producto a transportar, el peso estimado, la localización de la parcela como origen y el mercado destino de la cosecha.
+
+La integración propuesta consiste en que PRO y PLA invoquen el endpoint `POST /api/v1/vehicle-recommendation` al materializar una ventana de cosecha o al consolidar un plan de siembra. El coordinador logístico recibiría la recomendación de vehículo como parte del mismo flujo de planeación, sin necesidad de registrar la solicitud de forma independiente. El costo estimado producido por `cost_calculator.py` aportaría además al análisis de rentabilidad que PLA incluyó en su recomendación, cerrando el ciclo desde la decisión de qué sembrar hasta la estimación de cuánto costará transportarlo al mercado.
+
+### 6.2 Integración con FIN: enriquecimiento de tarifas y visibilidad de costos logísticos
+
+FIN-Advisor administró registros de `FacturaDeVenta` y `ComprobanteDeEgreso` del productor, que incluyeron transacciones con transportadores y las tarifas pactadas por corredor. Esta información, disponible en la base de datos relacional del módulo FIN, representa una fuente de tarifas reales que complementaría los datos estructurados en Neo4j empleados durante la inferencia de vehículo. Una integración en la dirección FIN → VEH consiste en exponer esas tarifas acordadas mediante un endpoint que el `GraphRepository` del servicio consultaría para calibrar o reemplazar las constantes SICE-TAC de `cost_calculator.py` con valores observados en las operaciones del mismo productor, reduciendo el error de estimación del costo de flete.
+
+En la dirección inversa, VEH → FIN, el costo estimado de transporte que `cost_calculator.py` calculó para cada recomendación constituye un dato de planificación financiera que FIN-Advisor no disponía antes de que la factura se emitiera. Al incorporar este estimado al diagnóstico de flujo de caja (S1) y a la evaluación de viabilidad de inversión (S2), el módulo FIN ofrecería al productor una proyección del gasto logístico con anterioridad al cierre del período contable, reduciendo la brecha entre el costo planeado y el costo realizado y mejorando la precisión de las alertas tributarias que FIN generó en formato JSON (S4).
+
+### 6.3 Integración con ANA: analítica del pipeline de recomendación y mejora de prompts
+
+El módulo ANA generó reportes narrativos estructurados a partir de métricas de proyectos analíticos (EVA — Evaluaciones Agropecuarias Municipales), tomando como insumo indicadores de rendimiento, tendencias y alertas de baja producción por cultivo y departamento. Su pipeline RAG recuperó fragmentos de manuales técnicos y estándares de rendimiento del dominio agropecuario para fundamentar los hallazgos generados. El servicio de vehículo produjo datos equivalentes por inferencia: vehículo seleccionado, nueve scores de calidad, texto de justificación y trazas auditables en Langfuse.
+
+Una primera forma de integración ANA → VEH consiste en que el módulo ANA consuma las métricas agregadas del servicio de vehículo (scores por dimensión, distribución de selecciones por proveedor, variabilidad entre solicitudes) como entrada a su pipeline de reporte. El resultado sería un reporte analítico periódico del comportamiento del sistema de recomendación, estructurado en el mismo formato narrativo que ANA aplicó a los proyectos agrícolas, con hallazgos y recomendaciones accionables para el equipo de operaciones.
+
+Una segunda forma de integración, de mayor impacto técnico, consiste en que ANA aplique su capacidad de recuperación semántica sobre el historial de trazas del servicio de vehículo para identificar patrones en las dimensiones de menor puntaje, en particular veracidad y relevancia, y proponga, con respaldo en su base de conocimiento agropecuario, modificaciones concretas al `PromptBuilder`. Esta integración convierte el módulo ANA en un mecanismo de mejora continua del pipeline de prompts, informado por evidencia empírica del sistema en producción y por el conocimiento técnico del dominio agrícola colombiano que ANA indexó en su base vectorial.
+
+---
+
+## 7. Referencias
 
 [1] E. A. Rayo Cortés, E. Toro Chalarca y S. A. Cardona Julio, "Arquitectura y Desarrollo para Inteligencia Artificial Generativa: API RAG para Selección Inteligente de Vehículo," Informe técnico, Universidad EAFIT, Medellín, Colombia, abr. 2025.
 
@@ -526,7 +556,7 @@ Desde la perspectiva de los SLMs, la separación de roles cobra mayor relevancia
 
 ---
 
-## 7. Apéndice A. Glosario de siglas y abreviaturas
+## 8. Apéndice A. Glosario de siglas y abreviaturas
 
 | Sigla | Definición |
 |---|---|
