@@ -61,7 +61,7 @@ El servicio construido respetó el enfoque agnóstico al consumidor definido en 
 
 Los tres componentes del repositorio, la API REST, el generador de la base de conocimiento y la infraestructura de datos, operaron de forma independiente. Esta separación preservó la cohesión del dominio y permitió actualizar la base documental sin detener el servicio de inferencia, una característica determinante para entornos logísticos donde las normativas, los corredores viales y los catálogos de flota se actualizan periódicamente.
 
-El documento se organizó de la siguiente forma. La Sección 1 describe la arquitectura implementada, con énfasis en el pipeline de ingesta y en las variaciones de comportamiento según el tipo de modelo de lenguaje empleado. La Sección 2 detalla los cambios respecto a la propuesta inicial. La Sección 3 presenta el diseño experimental y los resultados obtenidos. La Sección 4 discute los hallazgos. La Sección 5 recoge las conclusiones.
+El documento se organizó de la siguiente forma. La Sección 1 describe la arquitectura implementada, con énfasis en el pipeline de ingesta y en las variaciones de comportamiento según el tipo de modelo empleado. La Sección 2 detalla los cambios respecto a la propuesta inicial. La Sección 3 presenta el diseño experimental y los resultados obtenidos. La Sección 4 discute los hallazgos, incluyendo las consideraciones sobre las librerías y herramientas utilizadas. La Sección 5 recoge las conclusiones. La Sección 6 propone líneas de integración del servicio con otros módulos de la plataforma Evergreen.
 
 ---
 
@@ -234,7 +234,7 @@ La recuperación semántica realizó dos consultas a ChromaDB: una genérica sob
 
 ### 1.4 Adaptadores de LLM: modelos comerciales frente a modelos locales
 
-El sistema implementó cuatro adaptadores del puerto `LLMProvider`: `AnthropicAdapter` (Claude Sonnet 4.6) [9], `OpenAIAdapter` (GPT-4o-mini) [10], `GoogleAdapter` (Gemini 1.5) y `OllamaAdapter` (modelos locales vía Ollama) [11]. La Tabla 1 contrasta las características operativas de cada grupo.
+El sistema implementó cuatro adaptadores del puerto `LLMProvider`: `AnthropicAdapter` (Claude Sonnet 4.6) [9], `OpenAIAdapter` (GPT-4o-mini) [10], `GoogleAdapter` (Gemini 2.5 Flash) y `OllamaAdapter` (modelos locales vía Ollama) [11]. La Tabla 1 contrasta las características operativas de cada grupo.
 
 *Tabla 1. Comparación entre adaptadores de modelos comerciales y modelos locales.*
 
@@ -243,7 +243,7 @@ El sistema implementó cuatro adaptadores del puerto `LLMProvider`: `AnthropicAd
 | Modo de salida estructurada | JSON mode nativo o instrucción concisa en prompt | Modo estricto: esquema JSON explícito más ejemplo concreto en prompt |
 | Consistencia de salida | Alta. El JSON mode rechaza respuestas con formato incorrecto. | Variable. Requiere instrucciones de formato más detalladas para alcanzar conformidad. |
 | Razonamiento con contexto acotado | Mayor adherencia a restricciones del dominio | Dependiente del modelo descargado y del tamaño de contexto disponible |
-| Latencia de respuesta | 2-15 segundos (red más inferencia remota) | 5-60 segundos (inferencia local según hardware disponible) |
+| Latencia de respuesta | 2-15 segundos (red más inferencia remota) | 60-250 s (inferencia local según hardware disponible; promedio observado: 188 s) |
 | Privacidad de los datos | Los prompts viajan a servidores del proveedor externo | Los datos permanecen en el entorno local |
 | Costo operativo | Por token consumido en cada inferencia | Hardware local, sin costo por llamada |
 | Ventana de contexto | 128 000 – 1 000 000 tokens según modelo (GPT-4o-mini: 128k; Gemini 2.5 Flash: 1M; Claude Sonnet 4.6: 200k) | 32 768 tokens (qwen2.5:3b) |
@@ -327,6 +327,8 @@ La Tabla 3 presenta la distribución de trazas por solicitud, los vehículos sel
 | **Total** | **41**           |                         | **8.18** |
 
 Como se observa en la Tabla 3, EVAL-001 registró el desempeño más alto (8.84) con selección del vehículo óptimo en el 100% de las ejecuciones. EVAL-003 registró el desempeño más bajo (7.42) con una distribución de selección desfavorable: el sistema eligió con mayor frecuencia el vehículo subóptimo (VEH-06, 62.5%) en lugar del óptimo (VEH-05, 37.5%), lo que señaló este caso como el de mayor dificultad para el pipeline de recuperación.
+
+*Nota: los datos de la Tabla 3 corresponden al ciclo de evaluación inicial (sin `system_instruction` en el `GoogleAdapter`). El comportamiento de Google en EVAL-006 con `system_instruction` activo se documenta en la Tabla 8.*
 
 ### 3.3 Métricas de evaluación
 
@@ -419,7 +421,7 @@ El quinto concierne a la separación entre selección técnica y optimización d
 
 La mejora propuesta consiste en incorporar una fase de desempate por costo dentro del `RecommendationService`, posterior a la respuesta del LLM. El flujo ampliado operaría así: el LLM identifica el conjunto de vehículos técnicamente válidos; el `RecommendationService` calcula el costo estimado para cada uno mediante `calcular_costo()`; se selecciona el de menor costo total cuando la diferencia técnica entre candidatos no supera un umbral predefinido. Esta lógica respetaría la separación de responsabilidades de la arquitectura hexagonal: el LLM razona sobre criterios cualitativos y el módulo determinista optimiza el criterio económico, sin que ninguno invada el dominio del otro.
 
-El sexto concierne a la separación de roles de prompt en el adaptador de Google. El análisis del código del `GoogleAdapter` reveló que el sistema concatenaba el prompt de sistema y el prompt de usuario en un único string pasado a `generate_content()`, impidiendo que Gemini procesara las instrucciones de sistema con el peso semántico diferenciado que el SDK ofrece mediante el parámetro `system_instruction`. La evaluación experimental mostró que Google obtuvo los mejores resultados incluso con esta limitación (8.90/10), lo que indica que el modelo fue capaz de inferir el rol de las instrucciones a partir del contexto del texto. Esta tolerancia, sin embargo, es propia de LLMs de gran capacidad y no se puede asumir en modelos con menor capacidad de seguimiento de instrucciones implícitas. En un SLM, la ausencia de separación formal entre instrucción y contenido incrementa la probabilidad de que las restricciones del dominio (prohibición de mencionar costos, regla de prioridad de frío) sean ignoradas o mezcladas con el razonamiento sobre el pedido. El `GoogleAdapter` se corrigió para instanciar `GenerativeModel` con `system_instruction=system_prompt` en cada llamada a `generate()`, pasando únicamente el prompt de usuario a `generate_content()`. Esta corrección garantiza la separación de roles a nivel del SDK con independencia de la capacidad del modelo desplegado.
+El sexto concierne a la separación de roles de prompt en el adaptador de Google. La evaluación formal documentada en la Tabla 5 se ejecutó con el adaptador en su estado original, con concatenación de prompts. La corrección del `GoogleAdapter` se aplicó posterior a esa evaluación y su efecto se midió en el segundo ciclo documentado en la Tabla 8. El análisis del código reveló que el sistema concatenaba el prompt de sistema y el prompt de usuario en un único string pasado a `generate_content()`, impidiendo que Gemini procesara las instrucciones de sistema con el peso semántico diferenciado que el SDK ofrece mediante el parámetro `system_instruction`. La evaluación experimental mostró que Google obtuvo los mejores resultados incluso con esta limitación (8.90/10), lo que indica que el modelo fue capaz de inferir el rol de las instrucciones a partir del contexto del texto. Esta tolerancia, sin embargo, es propia de LLMs de gran capacidad y no se puede asumir en modelos con menor capacidad de seguimiento de instrucciones implícitas. En un SLM, la ausencia de separación formal entre instrucción y contenido incrementa la probabilidad de que las restricciones del dominio (prohibición de mencionar costos, regla de prioridad de frío) sean ignoradas o mezcladas con el razonamiento sobre el pedido. El `GoogleAdapter` se corrigió para instanciar `GenerativeModel` con `system_instruction=system_prompt` en cada llamada a `generate()`, pasando únicamente el prompt de usuario a `generate_content()`. Esta corrección garantiza la separación de roles a nivel del SDK con independencia de la capacidad del modelo desplegado.
 
 Para validar el impacto de la corrección, se ejecutó un segundo ciclo de evaluación con Google Gemini 2.5 Flash sobre las mismas seis solicitudes con `system_instruction` activo. Las seis trazas resultantes quedaron registradas en Langfuse (timestamps 2026-04-24). La Tabla 8 compara los resultados dimensión a dimensión antes y después de la corrección (n = 6 por ciclo).
 
@@ -506,7 +508,7 @@ La integración propuesta consiste en que PRO y PLA invoquen el endpoint `POST /
 
 FIN-Advisor administró registros de `FacturaDeVenta` y `ComprobanteDeEgreso` del productor, que incluyeron transacciones con transportadores y las tarifas pactadas por corredor. Esta información, disponible en la base de datos relacional del módulo FIN, representa una fuente de tarifas reales que complementaría los datos estructurados en Neo4j empleados durante la inferencia de vehículo. Una integración en la dirección FIN → VEH consiste en exponer esas tarifas acordadas mediante un endpoint que el `GraphRepository` del servicio consultaría para calibrar o reemplazar las constantes SICE-TAC de `cost_calculator.py` con valores observados en las operaciones del mismo productor, reduciendo el error de estimación del costo de flete.
 
-En la dirección inversa, VEH → FIN, el costo estimado de transporte que `cost_calculator.py` calculó para cada recomendación constituye un dato de planificación financiera que FIN-Advisor no disponía antes de que la factura se emitiera. Al incorporar este estimado al diagnóstico de flujo de caja (S1) y a la evaluación de viabilidad de inversión (S2), el módulo FIN ofrecería al productor una proyección del gasto logístico con anterioridad al cierre del período contable, reduciendo la brecha entre el costo planeado y el costo realizado y mejorando la precisión de las alertas tributarias que FIN generó en formato JSON (S4).
+En la dirección inversa, VEH → FIN, el costo estimado de transporte que `cost_calculator.py` calculó para cada recomendación constituye un dato de planificación financiera que FIN-Advisor no disponía antes de que la factura se emitiera. Al incorporar este estimado al diagnóstico de flujo de caja (S1) y a la evaluación de viabilidad de inversión (S2), el módulo FIN ofrecería al productor una proyección del gasto logístico con anterioridad al cierre del período contable. Esta visibilidad anticipada reduce la brecha entre el costo planeado y el costo realizado, y mejora la precisión de las alertas tributarias que FIN generó en formato JSON (S4).
 
 ### 6.3 Integración con ANA: analítica del pipeline de recomendación y mejora de prompts
 
@@ -538,7 +540,7 @@ Una segunda forma de integración, de mayor impacto técnico, consiste en que AN
 
 [9] Anthropic, "Claude Sonnet 4.6," documentación de la API de Anthropic, 2025. [En línea]. Disponible en: https://docs.anthropic.com.
 
-[10] OpenAI, "GPT-4o: Technical report," 2024. [En línea]. Disponible en: https://openai.com.
+[10] OpenAI, "GPT-4o-mini: Model card and technical overview," 2024. [En línea]. Disponible en: https://openai.com/index/gpt-4o-mini-advancing-cost-efficient-intelligence.
 
 [11] Ollama, "Ollama: Get up and running with large language models locally," 2024. [En línea]. Disponible en: https://ollama.com.
 
