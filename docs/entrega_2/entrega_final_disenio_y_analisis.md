@@ -41,6 +41,8 @@ Medellín, 2025
    - 3.5 Análisis por proveedor
    - 3.6 Análisis por dimensión
 4. Hallazgos y discusión
+   - 4.1 Consideraciones de las librerías y frameworks
+   - 4.2 Análisis de las herramientas
 5. Conclusiones
 6. Referencias
 7. Apéndice A. Glosario de siglas y abreviaturas
@@ -159,9 +161,9 @@ flowchart TD
     G --> J
 ```
 
-El proceso de segmentación aplicó una ventana deslizante sobre palabras con `chunk_size=800` y `chunk_overlap=80`. Este esquema difirió de la propuesta inicial [1], que anticipaba el uso del `RecursiveCharacterTextSplitter` de LangChain [5]. Se optó por una implementación propia para reducir dependencias externas y mantener control directo sobre la granularidad de la segmentación por dominio.
+El proceso de segmentación aplicó una ventana deslizante sobre palabras con `chunk_size=800` y `chunk_overlap=80`. Este esquema difirió de la propuesta inicial [1], que anticipaba el uso del `RecursiveCharacterTextSplitter` de LangChain [5]. Se optó por una implementación propia para reducir dependencias externas y mantener control directo sobre la granularidad de la segmentación por dominio. El tamaño de 800 palabras se estableció al verificar que los documentos más densos del corpus, las resoluciones del Ministerio de Transporte, contenían párrafos normativos de entre 600 y 750 palabras; un chunk inferior a ese umbral habría partido las resoluciones en fragmentos sin contexto suficiente para el LLM.
 
-Cada chunk se almacenó en ChromaDB con metadatos de categoría, fuente y posición en el documento original. Las cinco categorías documentales, `fichas_tecnicas_productos`, `catalogo_flota_vehicular`, `condiciones_rutas_vias`, `tarifas_costos_transporte` y `normativa_transporte`, se preservaron como metadatos para habilitar el filtrado por categoría durante la recuperación semántica.
+Cada chunk se almacenó en ChromaDB con metadatos de categoría, fuente y posición en el documento original. Las cinco categorías documentales, `fichas_tecnicas_productos`, `catalogo_flota_vehicular`, `condiciones_rutas_vias`, `tarifas_costos_transporte` y `normativa_transporte`, se preservaron como metadatos para habilitar el filtrado por categoría durante la recuperación semántica. Los scores de similitud coseno registrados durante la evaluación variaron entre 0.00 y 0.43 según el tipo de solicitud, lo que evidenció sensibilidad del índice vectorial al vocabulario de la consulta y motivó la estrategia de doble recuperación descrita en la Sección 1.3.
 
 El modelo de embeddings `all-MiniLM-L6-v2` [6], con vectores de 384 dimensiones, se ejecutó de forma local mediante SentenceTransformers. Esta elección respondió a dos criterios: ausencia de costo por token y posibilidad de operación sin acceso a internet, condición relevante para despliegues en entornos con restricciones de conectividad o requisitos de confidencialidad.
 
@@ -240,11 +242,14 @@ El sistema implementó cuatro adaptadores del puerto `LLMProvider`: `AnthropicAd
 | Latencia de respuesta | 2-15 segundos (red más inferencia remota) | 5-60 segundos (inferencia local según hardware disponible) |
 | Privacidad de los datos | Los prompts viajan a servidores del proveedor externo | Los datos permanecen en el entorno local |
 | Costo operativo | Por token consumido en cada inferencia | Hardware local, sin costo por llamada |
+| Ventana de contexto | 128 000 – 1 000 000 tokens según modelo (GPT-4o-mini: 128k; Gemini 2.5 Flash: 1M; Claude Sonnet 4.6: 200k) | 32 768 tokens (qwen2.5:3b) |
 | Propiedad en código | `strict_output = False` | `strict_output = True` |
 
 La propiedad `strict_output` del puerto `LLMProvider` determinó cuál de las dos plantillas de prompt aplicó el `PromptBuilder`. Para los modelos comerciales, el prompt del sistema incluyó el esquema JSON en formato de plantilla con instrucciones compactas. Para los modelos locales, el `PromptBuilder` añadió un bloque `<constraints>` con restricciones explícitas y un ejemplo de respuesta completo, lo que redujo la tasa de respuestas con formato incorrecto durante las pruebas con Ollama.
 
 La diferencia más notable en el comportamiento radicó en la adherencia a restricciones del dominio. Los LLMs comerciales respetaron de forma consistente la prohibición de mencionar costos o tiempos de tránsito, incluida en el prompt del sistema. Los modelos locales, con menor capacidad de seguimiento de instrucciones implícitas, requirieron la repetición de esta restricción en el bloque de constraints del modo estricto.
+
+En la práctica, Google Gemini no utilizó JSON mode nativo durante la evaluación: las respuestas llegaron envueltas en bloques de código Markdown, lo que obligó al `ResponseParser` a activar su estrategia de extracción por expresión regular. OpenAI entregó JSON limpio sin envoltorios. Esta distinción operativa no afectó la lógica del núcleo hexagonal, dado que el `ResponseParser` absorbió la variación, pero sí es relevante para el diagnóstico de latencia de parseo y para la generalización de la columna "Modo de salida estructurada" de la Tabla 1.
 
 ### 1.5 Ingeniería de prompts
 
@@ -335,7 +340,7 @@ La evaluación operó con nueve dimensiones de scoring calculadas de forma deter
 | `completitud_alternativas` | Presencia de alternativas y coherencia de los motivos de rechazo con el criterio determinante |
 | `veracidad` | Mención del producto transportado, el peso total y la ciudad de destino en la justificación |
 | `relevancia` | La justificación aborda explícitamente la restricción determinante del caso |
-| `promedio` | Media aritmética de las ocho dimensiones anteriores |
+| `promedio` | Media aritmética de las ocho dimensiones anteriores. No se contabiliza como dimensión independiente en los cálculos agregados. |
 
 ### 3.4 Resultados comparativos por proveedor
 
@@ -356,35 +361,19 @@ La Tabla 5 presenta los resultados de la comparación formal entre los tres prov
 | Latencia media | 188.36 s | 14.61 s | 5.1 s |
 | **Promedio global** | **7.19/10** | **8.90/10** | **8.06/10** |
 
-Como se aprecia en la Tabla 5, Google obtuvo el mayor promedio global (8.90/10), seguido de OpenAI (8.06/10) y Ollama (7.19/10). Las dimensiones de adherencia al esquema, calidad de justificación e idioma alcanzaron el valor máximo en los tres proveedores, lo que confirmó que el diseño del prompt garantizó conformidad estructural con independencia del modelo empleado. Las mayores diferencias entre proveedores se concentraron en relevancia (3.17 vs. 7.33 vs. 6.0) y veracidad (4.33 vs. 7.5 vs. 6.33), que miden la coherencia entre la justificación producida y los datos concretos de la solicitud.
+Como se aprecia en la Tabla 5, Google obtuvo el mayor promedio global (8.90/10), seguido de OpenAI (8.06/10) y Ollama (7.19/10). Los valores provienen de la comparación formal sobre las seis solicitudes de prueba (EVAL-001 a EVAL-006). Las dimensiones de adherencia al esquema, calidad de justificación e idioma alcanzaron el valor máximo en los tres proveedores, lo que confirmó que el diseño del prompt garantizó conformidad estructural con independencia del modelo empleado. Las mayores diferencias entre proveedores se concentraron en relevancia (3.17 vs. 7.33 vs. 6.0) y veracidad (4.33 vs. 7.5 vs. 6.33), que miden la coherencia entre la justificación producida y los datos concretos de la solicitud.
 
 La Figura 4 presenta los promedios de las cinco dimensiones con mayor variabilidad entre proveedores.
 
 *Figura 4. Comparación por dimensión en las cinco dimensiones diferenciadas (Ollama / Google / OpenAI).*
 
-```mermaid
-%%{init: {
-  'theme': 'base',
-  'themeVariables': {
-    'primaryColor': '#e1f5fe',
-    'primaryTextColor': '#2c3e50',
-    'primaryBorderColor': '#b3e5fc',
-    'lineColor': '#95a5a6',
-    'secondaryColor': '#f3e5f5',
-    'tertiaryColor': '#e8f5e9',
-    'mainBkg': '#ffffff',
-    'nodeBorder': '#d1d9e6',
-    'clusterBkg': '#fafafa'
-  }
-}}%%
-xychart-beta
-    title "Dimensiones diferenciadas: Ollama / Google / OpenAI"
-    x-axis ["selec. vehículo", "completitud", "veracidad", "relevancia", "prec. técnica"]
-    y-axis "Promedio (0-10)" 0 --> 10
-    bar [6.67, 5.83, 4.33, 3.17, 7.5]
-    bar [9.67, 8.67, 7.5, 7.33, 8.0]
-    bar [7.67, 7.0, 6.33, 6.0, 7.5]
-```
+| Dimensión | Ollama | Google | OpenAI |
+|---|:---:|:---:|:---:|
+| Selección del vehículo | 6.67 | 9.67 | 7.67 |
+| Completitud de alternativas | 5.83 | 8.67 | 7.00 |
+| Veracidad | 4.33 | 7.50 | 6.33 |
+| Relevancia | 3.17 | 7.33 | 6.00 |
+| Precisión técnica | 7.50 | 8.00 | 7.50 |
 
 ### 3.5 Análisis por proveedor
 
@@ -418,13 +407,48 @@ El primero concierne a la comparación entre proveedores de modelo de lenguaje. 
 
 El segundo concierne al prompt engineering diferenciado. El modo estricto del `PromptBuilder`, diseñado para SLMs locales, garantizó conformidad estructural plena en Ollama, pero no fue suficiente para inducir justificaciones que abordaran el criterio determinante del caso. En los LLMs comerciales, la relevancia de las justificaciones fue mayor sin necesidad del modo estricto, lo que indicó que la riqueza semántica depende principalmente de la capacidad del modelo y no del nivel de detalle del prompt. Esta diferencia motiva agregar, en versiones futuras, una sección `<key_constraint>` en el prompt que destaque el criterio determinante antes del bloque de generación.
 
-El tercero concierne al pipeline de recuperación. EVAL-003 evidenció que la recuperación semántica genérica no discriminó con suficiente precisión entre vehículos similares en el contexto documental. La incorporación del doble paso de recuperación (consulta genérica más consulta filtrada por categoría de flota) fue un avance respecto a la propuesta inicial; no obstante, no resolvió los casos de ambigüedad entre opciones con características próximas. Una estrategia de recuperación con re-ranking o expansión de consulta mejoraría la precisión en estos escenarios.
+El tercero concierne al pipeline de recuperación. EVAL-003 evidenció que la recuperación semántica genérica no discriminó con suficiente precisión entre vehículos similares en el contexto documental. Los scores de similitud coseno registrados en ChromaDB variaron entre 0.00 y 0.43 entre solicitudes, lo que reflejó sensibilidad del índice al vocabulario de la consulta. La incorporación del doble paso de recuperación (consulta genérica más consulta filtrada por categoría de flota) fue un avance respecto a la propuesta inicial; no obstante, no resolvió los casos de ambigüedad entre opciones con características próximas. Una estrategia de recuperación con re-ranking o expansión de consulta mejoraría la precisión en estos escenarios.
 
 El cuarto concierne a las métricas de evaluación. Las dimensiones de veracidad y relevancia mostraron que un score global alto no garantiza que la justificación aporte valor al coordinador logístico. Un sistema que generó JSON válido en español con vocabulario técnico obtuvo un score estructural perfecto, aun cuando la justificación no mencionó el criterio que determinó la selección. Las métricas cuantitativas deben complementarse con evaluación cualitativa por parte de expertos del dominio en iteraciones futuras.
 
 El quinto concierne a la separación entre selección técnica y optimización de costo. El `RecommendationService` operó en dos fases desacopladas: el LLM seleccionó el vehículo con base en criterios técnicos (refrigeración, capacidad, normativa) y, una vez tomada esa decisión, `cost_calculator.py` calculó el costo del flete a partir de la distancia y los peajes de Neo4j. El costo no intervino en la decisión del LLM. En escenarios donde dos o más vehículos cumplieron igualmente los requisitos técnicos, el sistema careció de mecanismo para preferir la opción más económica. Esta limitación se manifestó en EVAL-004, donde VEH-07 y VEH-08 alternaron su selección entre proveedores sin que el costo diferencial incidiera en el resultado.
 
 La mejora propuesta consiste en incorporar una fase de desempate por costo dentro del `RecommendationService`, posterior a la respuesta del LLM. El flujo ampliado operaría así: el LLM identifica el conjunto de vehículos técnicamente válidos; el `RecommendationService` calcula el costo estimado para cada uno mediante `calcular_costo()`; se selecciona el de menor costo total cuando la diferencia técnica entre candidatos no supera un umbral predefinido. Esta lógica respetaría la separación de responsabilidades de la arquitectura hexagonal: el LLM razona sobre criterios cualitativos y el módulo determinista optimiza el criterio económico, sin que ninguno invada el dominio del otro.
+
+### 4.1 Consideraciones de las librerías y frameworks
+
+La integración con cada proveedor de modelo de lenguaje reveló diferencias relevantes en la gestión del prompt, el forzado de formato de salida y la estimación de tokens. La Tabla 6 sintetiza las características observadas durante la implementación.
+
+*Tabla 6. Comparación de librerías e integración por proveedor.*
+
+| Librería / Mecanismo | Proveedor | Separación system/user | Soporte JSON forzado | Facilidad de integración | Limitaciones observadas |
+|---|---|---|---|---|---|
+| `urllib.request` (API REST directa) | Ollama (qwen2.5:3b) | Sí — mensajes separados con roles `system` y `user` en el payload `/api/chat` | Sí — parámetro `"format": "json"` nativo del servidor Ollama | Alta — sin dependencia externa, solo librería estándar de Python | Latencia promedio de 188 s por solicitud; estimación de tokens por heurística (`len//4`); timeout de 600 s necesario para modelos cuantizados |
+| `google-generativeai` (≥ 0.7.0) | Google (gemini-2.5-flash) | No — system y user se concatenan en un único string pasado a `generate_content()` | No — el modelo responde con bloques Markdown que envuelven el JSON y requieren post-procesamiento | Media — requiere API key y configuración global con `genai.configure()`; SDK oficial documentado | El SDK ofrece `system_instruction` en `GenerativeModel`, no utilizado en esta implementación; conteo de tokens por heurística (`len//4`) |
+| `openai` SDK | OpenAI (gpt-4o-mini) | Sí — separación nativa en el array `messages[]` | Sí — JSON limpio sin envoltorios de Markdown | Alta — estándar de facto con documentación extensa | Sin limitaciones relevantes observadas en la evaluación |
+
+La integración con Ollama se implementó sin SDK de terceros, mediante llamadas directas a la API REST local. Esta decisión eliminó dependencias externas y otorgó control total sobre el payload, lo que permitió habilitar el modo `"format": "json"` nativo del servidor. Las respuestas de Ollama devolvieron JSON puro sin envoltorios de Markdown, lo que facilitó el parseo directo. La principal limitación fue la latencia: el modelo cuantizado `qwen2.5:3b-instruct-q4_K_M` requirió en promedio 188 segundos por solicitud en el hardware de desarrollo disponible, factor crítico para un sistema de producción.
+
+La integración con Google utilizó el SDK oficial `google-generativeai`, pero la implementación concatenó el prompt del sistema y el del usuario en un único string, pasándolo como argumento único a `generate_content()`. El modelo Gemini no recibió las instrucciones de sistema como tal, sino como parte del contenido del usuario. El SDK ofrece el parámetro `system_instruction` en `GenerativeModel`, cuya adopción mejoraría la separación real de roles en versiones futuras. A pesar de esta limitación de implementación, Gemini produjo respuestas de alta calidad técnica. Las respuestas llegaron envueltas en bloques de código Markdown, lo que obligó al `ResponseParser` a recurrir a su estrategia de extracción por expresión regular, etapa de post-procesamiento que el adaptador de Ollama evitó.
+
+La integración con OpenAI utilizó el SDK oficial con el array estándar `messages[]`. La separación de roles es nativa al formato de la API y las respuestas llegaron como JSON limpio sin envoltorios. La latencia promedio de 5.1 s fue la menor de los tres proveedores evaluados.
+
+### 4.2 Análisis de las herramientas
+
+La Tabla 7 presenta la evaluación de las herramientas de infraestructura utilizadas durante el desarrollo y la evaluación experimental.
+
+*Tabla 7. Análisis de herramientas de infraestructura.*
+
+| Herramienta | Rol | Fortalezas observadas | Limitaciones | Impacto en el pipeline RAG |
+|---|---|---|---|---|
+| **Ollama** (local) | Servidor de inferencia local para SLMs | Ejecución sin dependencia de APIs externas; control sobre el modelo y los datos; sin costo por token; útil para entornos con restricciones de conectividad | Latencia de 188 s por solicitud en hardware sin GPU dedicada; menor veracidad (4.33/10) y precisión técnica (7.5/10) respecto a los modelos comerciales | El esquema JSON se mantuvo estable (10/10) incluso con el modelo local, lo que validó la arquitectura de prompts del servicio |
+| **Google Gemini API** | Proveedor cloud de LLM | Latencia baja y consistente (14.61 s); mayor veracidad (7.5/10) y precisión técnica (8.0/10); justificaciones con referencias explícitas a documentos del contexto RAG y normativa colombiana | Respuestas JSON envueltas en bloques Markdown; dependencia de conectividad externa; costos asociados por token | Gemini demostró mayor capacidad para integrar el contexto recuperado, citando fuentes específicas en sus justificaciones |
+| **ChromaDB** | Base de datos vectorial para recuperación semántica | Proporcionó contexto documental relevante; integración directa con el pipeline de embeddings | Los scores de similitud variaron entre 0.00 y 0.43 según la solicitud, lo que evidenció sensibilidad al vocabulario de la consulta y motivó la estrategia de doble recuperación | Componente central de la etapa de retrieval; la calidad de los documentos recuperados condiciona directamente la calidad de las respuestas |
+| **Neo4j** | Base de grafos para contexto estructurado | Aportó datos estructurados sobre corredores, normativa y tarifas, complementando el contexto documental | Las respuestas de Ollama no evidenciaron aprovechamiento profundo del contexto de grafos, a diferencia de Google | Enriquece el contexto RAG con relaciones explícitas entre entidades, lo que beneficia a modelos con mayor capacidad de razonamiento |
+| **FastAPI** | Framework del servicio REST | La arquitectura hexagonal permitió intercambiar proveedores de LLM sin modificar la lógica de dominio; separación clara entre prompt de sistema y prompt de usuario | Los prompts del reporte de evidencia aparecen truncados en algunos registros, lo que sugiere un límite en la longitud de visualización del log | El diseño por puertos y adaptadores facilitó la evaluación comparativa al permitir ejecutar las mismas solicitudes contra múltiples proveedores con un único punto de entrada |
+| **Langfuse** | Plataforma de observabilidad self-hosted | Registro completo de prompts, respuestas, tokens y scores por inferencia; trazabilidad auditable sin transmitir datos a servidores externos | La discrepancia histórica entre nombres de scores (`completitud` vs. `completitud_alternativas`) requirió implementar un mapa de aliases para la exportación | Habilitó el análisis cuantitativo de 41 trazas y el diagnóstico de errores de consistencia en los nombres de dimensión |
+
+El ranking final de proveedores, derivado de los datos de la Tabla 5, posiciona a Google (gemini-2.5-flash) como la opción recomendada para despliegue en producción (8.90/10), seguida de OpenAI GPT-4o-mini (8.06/10) como alternativa con menor latencia, y de Ollama qwen2.5:3b (7.19/10) como opción para entornos de desarrollo sin conectividad o con requisitos de soberanía de datos.
 
 ---
 
@@ -442,7 +466,7 @@ La adopción de `SCORE_KEYS` como única fuente de verdad para los nombres de di
 
 ## 6. Referencias
 
-[1] E. A. Rayo Cortés, E. Toro Chalarca y S. A. Cardona Julio, "Arquitectura y Desarrollo para Inteligencia Artificial Generativa: API RAG para Selección Inteligente de Vehículo," Informe técnico v1, EAFIT, Medellín, abr. 2025.
+[1] E. A. Rayo Cortés, E. Toro Chalarca y S. A. Cardona Julio, "Arquitectura y Desarrollo para Inteligencia Artificial Generativa: API RAG para Selección Inteligente de Vehículo," Informe técnico, Universidad EAFIT, Medellín, Colombia, abr. 2025.
 
 [2] Langfuse GmbH, "Langfuse: Open Source LLM Engineering Platform," versión 2.60, 2024. [En línea]. Disponible en: https://langfuse.com.
 
@@ -450,7 +474,7 @@ La adopción de `SCORE_KEYS` como única fuente de verdad para los nombres de di
 
 [4] Neo4j Inc., *Neo4j Graph Database Manual v5*, 2024. [En línea]. Disponible en: https://neo4j.com/docs.
 
-[5] H. Chase, "LangChain: Building applications with LLMs through composability," GitHub, 2022. [En línea]. Disponible en: https://github.com/langchain-ai/langchain.
+[5] LangChain AI, "LangChain: Building applications with LLMs through composability," GitHub, 2022. [En línea]. Disponible en: https://github.com/langchain-ai/langchain.
 
 [6] N. Reimers e I. Gurevych, "Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks," en *Proc. 2019 Conf. on Empirical Methods in Natural Language Processing (EMNLP)*, Hong Kong, 2019, pp. 3982-3992.
 
@@ -458,7 +482,7 @@ La adopción de `SCORE_KEYS` como única fuente de verdad para los nombres de di
 
 [8] Instituto Nacional de Vigilancia de Medicamentos y Alimentos (INVIMA), "Lineamientos para el transporte de alimentos en cadena de frío," Bogotá, 2022.
 
-[9] Anthropic, "Claude: AI assistant by Anthropic," 2024. [En línea]. Disponible en: https://www.anthropic.com.
+[9] Anthropic, "Claude Sonnet 4.6," documentación de la API de Anthropic, 2025. [En línea]. Disponible en: https://docs.anthropic.com.
 
 [10] OpenAI, "GPT-4o: Technical report," 2024. [En línea]. Disponible en: https://openai.com.
 
