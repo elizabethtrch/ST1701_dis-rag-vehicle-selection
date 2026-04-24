@@ -98,14 +98,30 @@ graph TB
     subgraph api["API RAG  —  api/"]
         direction TB
         AE[Adaptadores de entrada<br>FastAPI Router · CLI]
-        NH[Núcleo hexagonal<br>RecommendationService]
-        PT[Puertos<br>interfaces abstractas]
-        AS[Adaptadores de salida<br>LLM · Knowledge · Observability]
+        subgraph nucleo["Núcleo hexagonal"]
+            RS[RecommendationService<br>+ CostCalculator]
+            PB[PromptBuilder]
+            RP[ResponseParser]
+        end
+        subgraph puertos["Puertos — interfaces abstractas"]
+            PK[KnowledgeRepository]
+            PG[GraphRepository]
+            PL[LLMProvider]
+            PE[EmbeddingProvider]
+            PO[ObservabilityPort]
+        end
+        subgraph adaptadores["Adaptadores de salida"]
+            ALLM[AnthropicAdapter<br>OpenAIAdapter<br>GoogleAdapter<br>OllamaAdapter]
+            AKV[ChromaAdapter]
+            AEM[SentenceTransformersAdapter]
+            AGR[Neo4jAdapter]
+            AOB[LangfuseAdapter]
+        end
     end
 
     subgraph kb["Generador de base de conocimiento  —  kb-generator/"]
         direction LR
-        AGENT[Agente orquestador]
+        AGENT[Agente orquestador<br>Python + Claude SDK]
         PIPE[Pipeline de ingesta<br>chunker · embedder · mappers]
     end
 
@@ -116,12 +132,17 @@ graph TB
     end
 
     C -->|"POST /api/v1/vehicle-recommendation"| AE
-    AE --> NH
-    NH --> PT
-    PT --> AS
-    AS --> CHROMA
-    AS --> NEO
-    AS --> LANGFUSE
+    AE --> RS
+    RS --> PB & RP
+    RS --> PK & PG & PL & PE & PO
+    PK --> AKV
+    PG --> AGR
+    PL --> ALLM
+    PE --> AEM
+    PO --> AOB
+    AKV & AEM --> CHROMA
+    AGR --> NEO
+    AOB --> LANGFUSE
     AGENT --> PIPE
     PIPE --> CHROMA
     PIPE --> NEO
@@ -154,14 +175,14 @@ La Figura 2 presenta el flujo del pipeline de ingesta de extremo a extremo.
 }}%%
 flowchart TD
     A["Documentos fuente<br>PDF · XLS · API INVIAS"] --> B["Agente estructurador<br>Python + Claude SDK"]
-    B --> C["Archivos Markdown<br>YAML front matter + contenido estructurado"]
+    B --> C["Archivos Markdown estructurados<br>YAML front matter · categoría · fuente · fecha"]
     C --> D{"Tipo de artefacto"}
-    D -->|".md general"| E["Chunker por palabras<br>chunk_size=800<br>chunk_overlap=80"]
-    D -->|"invias_corredores.json"| F["Mapper de corredores<br>y ciudades"]
-    D -->|"metadata.json"| G["Mapper de documentos,<br>normativas y productos"]
-    E --> H["Embedder<br>all-MiniLM-L6-v2<br>384 dimensiones"]
-    H --> I[("ChromaDB<br>búsqueda semántica<br>5 categorías")]
-    F --> J[("Neo4j<br>Corredores · Ciudades<br>Departamentos · Tarifas")]
+    D -->|".md general"| E["Chunker por palabras<br>chunk_size=800 · chunk_overlap=80<br>metadatos: categoría · fuente · posición"]
+    D -->|"invias_corredores.json"| F["Mapper de corredores<br>(:Corredor)→(:Ciudad)→(:Departamento)"]
+    D -->|"metadata.json"| G["Mappers de entidades<br>Productos · Normativas · Tarifas"]
+    E --> H["EmbeddingProvider<br>SentenceTransformersAdapter<br>all-MiniLM-L6-v2 · 384 dim"]
+    H --> I[("ChromaDB<br>5 categorías documentales<br>búsqueda semántica")]
+    F --> J[("Neo4j<br>Corredores · Ciudades<br>Departamentos · Tarifas<br>Productos · Normativas")]
     G --> J
 ```
 
@@ -204,6 +225,7 @@ sequenceDiagram
     participant OBS as LangfuseAdapter
 
     C->>R: POST /api/v1/vehicle-recommendation (JSON)
+    R->>R: Autenticación Bearer token
     R->>R: Validación Pydantic
     R->>S: recomendar(solicitud)
 
@@ -219,10 +241,12 @@ sequenceDiagram
     S->>NEO: get_normativa_tipos(tipos)
     NEO-->>S: contexto estructurado
 
+    S->>S: PromptBuilder.build(contexto, solicitud)
     S->>LLM: generate(system_prompt, user_prompt)
     LLM-->>S: LLMResponse con texto JSON
 
     S->>S: ResponseParser.parse()
+    S->>S: calcular_costo(corredor, tipo_vehiculo)
     S->>OBS: trace_recommendation(prompts, respuesta, tokens)
     S->>OBS: score_recommendation(9 dimensiones)
 
