@@ -48,6 +48,7 @@ Medellín, 2026
    - 6.1 Integración con PRO y PLA: demanda de transporte a partir de ventanas de cosecha
    - 6.2 Integración con FIN: enriquecimiento de tarifas y visibilidad de costos logísticos
    - 6.3 Integración con ANA: analítica del pipeline de recomendación y mejora de prompts
+   - 6.4 Integración con ADM: enriquecimiento dinámico de la flota disponible
 7. Referencias
 8. Apéndice A. Glosario de siglas y abreviaturas
 
@@ -516,7 +517,7 @@ Desde la perspectiva de los SLMs, la separación de roles cobra mayor relevancia
 
 ## 6. Posibles integraciones Evergreen
 
-El sistema RAG de selección de vehículo operó como un servicio autónomo dentro de la plataforma Evergreen. Los insumos que recibió y los datos que produjo señalaron puntos de articulación naturales con otros módulos RAG del ecosistema. Se identificaron tres integraciones con potencial de valor bilateral para la plataforma, derivadas del análisis de las salidas y entradas de los equipos PRO, PLA, FIN y ANA.
+El sistema RAG de selección de vehículo operó como un servicio autónomo dentro de la plataforma Evergreen. Los insumos que recibió y los datos que produjo señalaron puntos de articulación naturales con otros módulos RAG del ecosistema. Se identificaron cuatro integraciones con potencial de valor bilateral para la plataforma, derivadas del análisis de las salidas y entradas de los equipos PRO, PLA, FIN, ANA y ADM.
 
 ### 6.1 Integración con PRO y PLA: demanda de transporte a partir de ventanas de cosecha
 
@@ -537,6 +538,14 @@ El módulo ANA [21] generó reportes narrativos estructurados a partir de métri
 Una primera forma de integración ANA → VEH consiste en que el módulo ANA consuma las métricas agregadas del servicio de vehículo (scores por dimensión, distribución de selecciones por proveedor, variabilidad entre solicitudes) como entrada a su pipeline de reporte. El resultado sería un reporte analítico periódico del comportamiento del sistema de recomendación, estructurado en el mismo formato narrativo que ANA aplicó a los proyectos agrícolas, con hallazgos y recomendaciones accionables para el equipo de operaciones.
 
 Una segunda forma de integración, de mayor impacto técnico, consiste en que ANA aplique su capacidad de recuperación semántica sobre el historial de trazas del servicio de vehículo para identificar patrones en las dimensiones de menor puntaje, en particular veracidad y relevancia, y proponga, con respaldo en su base de conocimiento agropecuario, modificaciones concretas al `PromptBuilder`. Esta integración convierte el módulo ANA en un mecanismo de mejora continua del pipeline de prompts, informado por evidencia empírica del sistema en producción y por el conocimiento técnico del dominio agrícola colombiano que ANA indexó en su base vectorial.
+
+### 6.4 Integración con ADM: enriquecimiento dinámico de la flota disponible
+
+El módulo ADM [22] construyó un asistente RAG que configuró roles y permisos para los usuarios del sistema Evergreen a partir del cargo organizacional, el módulo asignado y una descripción de responsabilidades. El sistema cruzó ese perfil contra una base de conocimiento compuesta por tres artefactos: `politicas_acceso.json`, que definió las reglas de acceso por tipo de participante y los roles disponibles del sistema; `catalogo_permisos.json`, que registró el vocabulario controlado de permisos por módulo; y `historico_configuraciones.json`, que almacenó asignaciones previas para perfiles similares. Como salida, el sistema produjo un `rol_recomendado` con su `nivel_confianza` y los `casos_similares_ref` que sustentaron la recomendación.
+
+La conexión con el servicio de vehículo surge del dato `cargo`: cuando un transportador se incorpora a Evergreen a través de ADM, su perfil registra el tipo de vehículo que opera, la capacidad de carga y la bandera de refrigeración como parte de la descripción del cargo. En la dirección ADM → VEH, el `historico_configuraciones.json` que ADM mantiene constituye un registro actualizado de transportadores habilitados en el sistema. Una integración consiste en exponer ese registro mediante un endpoint que el `RecommendationService` consulte para construir dinámicamente el bloque `<available_fleet>` del prompt de usuario, en lugar de requerir que el sistema consumidor lo provea en cada solicitud. Esta integración garantiza que la flota disponible refleje en todo momento el estado real de los transportadores activos en la plataforma, sin que el coordinador logístico necesite mantenerla manualmente.
+
+En la dirección inversa, VEH → ADM, las recomendaciones con `nivel_alerta = "alto"` emitidas por el servicio de vehículo señalan que ninguno de los transportadores registrados en Evergreen cumplió simultáneamente todos los requisitos del pedido. Esta señal representa evidencia concreta de una brecha en el catálogo de transportadores: ausencia de vehículos refrigerados de gran tonelaje, cobertura insuficiente en un corredor específico o incapacidad de atender volúmenes superiores a los disponibles en la flota activa. Al recibir esta señal, ADM podría facilitar la incorporación de un nuevo perfil de transportador con los permisos y el módulo correspondientes, cerrando el ciclo entre la detección operativa del déficit de flota y la gestión administrativa del sistema.
 
 ---
 
@@ -583,6 +592,8 @@ Una segunda forma de integración, de mayor impacto técnico, consiste en que AN
 [20] C. Oberndorfer Mejía y S. Florez López, "FIN-Advisor: Asistente Inteligente de Optimización Tributaria y Flujo de Caja," presentación técnica, Equipo FIN — Evergreen, Universidad EAFIT, Medellín, Colombia, 2026. [Disponible en Microsoft Teams: ST1707_5603_2661_TOPICOS AVZDOS. ING. SOFTWARE — Material compartido — Entrega 1].
 
 [21] C. Rangel Sánchez, W. E. García y M. Jiménez Arredondo, "Generación Automática de Reportes Analíticos Agrícolas," presentación técnica, Módulo ANA — Evergreen, Universidad EAFIT, Medellín, Colombia, 2026. [Disponible en Microsoft Teams: ST1707_5603_2661_TOPICOS AVZDOS. ING. SOFTWARE — Material compartido — Entrega 1].
+
+[22] S. Ortiz, D. A. García y J. E. Quintero, "Asistente de Configuración de Roles y Permisos con RAG para el módulo ADM de Evergreen," presentación técnica, Módulo ADM — Evergreen, Universidad EAFIT, Medellín, Colombia, 2026. [Disponible en Microsoft Teams: ST1707_5603_2661_TOPICOS AVZDOS. ING. SOFTWARE — Material compartido — Entrega 1].
 
 ---
 
